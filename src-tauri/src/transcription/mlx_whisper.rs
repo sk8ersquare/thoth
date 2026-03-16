@@ -1,0 +1,176 @@
+//! Whisper MLX backend
+//!
+//! Uses the mlx-whisper Python package for fast Whisper transcription
+//! on Apple Silicon via Apple's MLX framework. Runs as a Python subprocess.
+//!
+//! Models are downloaded from HuggingFace (mlx-community) on first use,
+//! cached automatically by huggingface_hub to ~/.cache/huggingface/.
+//!
+//! Install: pip3 install mlx-whisper
+
+use anyhow::{anyhow, Result};
+use std::path::Path;
+use std::process::{Command, Stdio};
+use std::sync::OnceLock;
+use std::time::Duration;
+
+static PYTHON_PATH: OnceLock<String> = OnceLock::new();
+
+/// Find Python with mlx_whisper installed
+fn find_python() -> &'static str {
+    PYTHON_PATH.get_or_init(|| {
+        let candidates = [
+            "/usr/bin/python3",
+            "python3",
+            "python3.12",
+            "python3.11",
+            "python3.10",
+            "python3.9",
+            "python",
+        ];
+        for candidate in &candidates {
+            let ok = Command::new(candidate)
+                .args(["-c", "import mlx_whisper"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if ok {
+                tracing::info!("MLX Whisper: found Python at {}", candidate);
+                return candidate.to_string();
+            }
+        }
+        tracing::warn!("MLX Whisper: no Python with mlx_whisper found, defaulting to /usr/bin/python3");
+        "/usr/bin/python3".to_string()
+    })
+}
+
+/// Check if mlx-whisper Python package is available
+pub fn is_available() -> bool {
+    Command::new("/usr/bin/python3")
+        .args(["-c", "import mlx_whisper"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Map manifest model_id to the HuggingFace repo path for mlx-community
+pub fn hf_repo_for_model(model_id: &str) -> &str {
+    match model_id {
+        "mlx-large-v3-turbo"    => "mlx-community/whisper-large-v3-turbo",
+        "mlx-large-v3-turbo-q4" => "mlx-community/whisper-large-v3-turbo-q4",
+        "mlx-large-v3"          => "mlx-community/whisper-large-v3-mlx",
+        "mlx-small"             => "mlx-community/whisper-small-mlx",
+        "mlx-base"              => "mlx-community/whisper-base-mlx",
+        "mlx-tiny"              => "mlx-community/whisper-tiny-mlx",
+        // Fallback: treat model_id as the HF repo directly
+        other                   => other,
+    }
+}
+
+pub struct MlxWhisperService {
+    /// HuggingFace repo path, e.g. "mlx-community/whisper-large-v3-turbo"
+    hf_repo: String,
+}
+
+impl MlxWhisperService {
+    pub fn new(model_id: &str) -> Self {
+        let hf_repo = hf_repo_for_model(model_id).to_string();
+        tracing::info!("MLX Whisper: service created for repo={}", hf_repo);
+        Self { hf_repo }
+    }
+
+    pub fn transcribe(&self, audio_path: &Path) -> Result<String> {
+        let audio_path_str = audio_path
+            .to_str()
+            .ok_or_else(|| anyhow!("Invalid audio path"))?;
+
+        let python = find_python();
+        let hf_repo = &self.hf_repo;
+
+        // Simple one-liner: mlx_whisper handles model caching automatically
+        let script = format!(
+            "import mlx_whisper, sys; \
+             result = mlx_whisper.transcribe(sys.argv[1], path_or_hf_repo='{}', verbose=False); \
+             print(result.get('text', '').strip() if isinstance(result, dict) else str(result).strip())",
+            hf_repo
+        );
+
+        tracing::info!(
+            "MLX Whisper: transcribing {} with repo={}",
+            audio_path_str, hf_repo
+        );
+
+        let mut child = Command::new(python)
+            .args(["-c", &script, audio_path_str])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| anyhow!("Failed to start mlx_whisper: {}", e))?;
+
+        let timeout = Duration::from_secs(300);
+        let start = std::time::Instant::now();
+
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) => {
+                    if start.elapsed() > timeout {
+                        let _ = child.kill();
+                        return Err(anyhow!("MLX Whisper timed out after 300s"));
+                    }
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+                Err(e) => return Err(anyhow!("MLX Whisper wait error: {}", e)),
+            }
+        }
+
+        let output = child.wait_with_output()
+            .map_err(|e| anyhow!("Failed to read mlx_whisper output: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!(
+                "MLX Whisper failed (exit {}): {}",
+                output.status,
+                stderr.trim()
+            ));
+        }
+
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        tracing::info!("MLX Whisper: transcription complete ({} chars)", text.len());
+        Ok(text)
+    }
+}
+
+// ── Tauri Commands ────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn is_mlx_whisper_available() -> bool {
+    is_available()
+}
+
+#[tauri::command]
+pub fn install_mlx_whisper() -> Result<String, String> {
+    let output = std::process::Command::new("/usr/bin/pip3")
+        .args(["install", "mlx-whisper"])
+        .output()
+        .or_else(|_| {
+            std::process::Command::new("pip3")
+                .args(["install", "mlx-whisper"])
+                .output()
+        })
+        .map_err(|e| format!("Failed to run pip3: {}", e))?;
+
+    if output.status.success() {
+        Ok("mlx-whisper installed successfully".to_string())
+    } else {
+        Err(format!(
+            "Installation failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}

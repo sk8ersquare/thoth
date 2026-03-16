@@ -408,6 +408,8 @@
       await invoke('set_selected_model_id', { modelId: model.id });
       if (model.model_type === 'fluidaudio_coreml') {
         await invoke('init_fluidaudio_transcription');
+      } else if (model.model_type === 'mlx_whisper') {
+        await invoke('init_mlx_whisper_transcription', { modelId: model.id });
       } else if (model.model_type === 'custom_whisper_ggml' || model.model_type === 'custom_parakeet') {
         await invoke('init_transcription', { modelPath: model.path });
       } else {
@@ -536,6 +538,7 @@
   function getCategory(model: ModelInfo): Category {
     if (model.model_type === 'custom_whisper_ggml' || model.model_type === 'custom_parakeet') return 'custom';
     if (model.model_type === 'nemo_transducer' || model.model_type === 'fluidaudio_coreml') return 'parakeet';
+    if (model.model_type === 'mlx_whisper') return 'lightning';
     if (model.model_type === 'whisper_ggml') return 'whisperkit';
     return 'whisperkit';
   }
@@ -552,7 +555,7 @@
   const categories: CategoryDef[] = [
     { key: 'parakeet', label: 'Parakeet', description: 'NVIDIA Parakeet + Apple Neural Engine', iconBg: '#76b900', iconText: 'NV' },
     { key: 'whisperkit', label: 'WhisperKit', description: 'OpenAI Whisper via whisper.cpp (Metal GPU)', iconBg: '#4a90d9', iconText: 'W' },
-    { key: 'lightning', label: 'Lightning Whisper MLX', description: 'Fast Whisper on Apple Silicon via MLX', iconBg: '#9b59b6', iconText: '', iconEmoji: '\u26A1' },
+    { key: 'lightning', label: 'Whisper MLX', description: 'Whisper on Apple Silicon via Apple MLX framework', iconBg: '#9b59b6', iconText: '', iconEmoji: '\u26A1' },
     { key: 'custom', label: 'Custom Models', description: 'User-supplied local models', iconBg: '#6b7280', iconText: '', iconEmoji: '\u2699' },
   ];
 
@@ -588,6 +591,7 @@
     switch (modelType) {
       case 'fluidaudio_coreml': return 'Apple Neural Engine';
       case 'nemo_transducer': return 'Sherpa-ONNX (CPU)';
+      case 'mlx_whisper': return 'Whisper MLX (Apple Silicon)';
       case 'whisper_ggml': return 'whisper.cpp (Metal GPU)';
       case 'custom_whisper_ggml': return 'Custom (whisper.cpp)';
       case 'custom_parakeet': return 'Custom (Parakeet)';
@@ -678,7 +682,7 @@
     {@const catModels = sortCategoryModels(modelsForCategory(cat.key))}
     {@const icon = categoryIcon(cat)}
 
-    {#if cat.key !== 'lightning' && cat.key !== 'custom' && catModels.length > 0}
+    {#if cat.key !== 'custom' && catModels.length > 0}
       <div class="category-section">
         <!-- svelte-ignore a11y_interactive_supports_focus -->
         <div class="category-header collapsible-header" role="button" onclick={() => toggleSection(cat.key)}>
@@ -791,120 +795,6 @@
       </div>
     {/if}
   {/each}
-
-  <!-- Lightning Whisper MLX category -->
-  <div class="category-section">
-    <!-- svelte-ignore a11y_interactive_supports_focus -->
-    <div class="category-header collapsible-header" role="button" onclick={() => toggleSection('lightning')}>
-      <span class="cat-icon" style:background="#9b59b6">{'\u26A1'}</span>
-      <div class="category-info">
-        <span class="category-name">Lightning Whisper MLX</span>
-        <span class="category-desc">Fast Whisper on Apple Silicon via MLX</span>
-      </div>
-      <span class="collapse-chevron" class:collapsed={collapsedSections['lightning']}>›</span>
-    </div>
-
-    {#if !collapsedSections['lightning']}
-    <div class="model-card lightning-card">
-      <div class="model-row">
-        <span class="cat-icon cat-icon-sm" style:background="#9b59b6">{'\u26A1'}</span>
-        <div class="model-info" style="flex:1">
-          <div class="model-title-row">
-            <span class="model-name">Lightning Whisper MLX</span>
-          </div>
-          <p class="model-description">Python-based Whisper transcription optimised for Apple Silicon via MLX framework. Model weights are automatically downloaded from HuggingFace on first use (~1-3GB depending on model size).</p>
-
-          {#if !lightningAvailable}
-            <div class="install-section">
-              {#if lightningInstallError}
-                <div class="backend-warning">{lightningInstallError}</div>
-              {:else if lightningInstallResult}
-                <div class="install-success">{lightningInstallResult}</div>
-              {:else}
-                <div class="backend-warning">lightning-whisper-mlx is not installed.</div>
-              {/if}
-              <button
-                class="btn-primary install-btn"
-                onclick={installLightningWhisper}
-                disabled={lightningInstalling}
-              >
-                {#if lightningInstalling}
-                  <span class="btn-spinner"></span> Installing...
-                {:else}
-                  Install lightning-whisper-mlx
-                {/if}
-              </button>
-            </div>
-          {/if}
-
-          <div class="lightning-controls">
-            <div class="control-group">
-              <label class="control-label" for="lw-model">Model</label>
-              <select id="lw-model" class="control-select" bind:value={lightningModel}>
-                {#each lightningModels as m}
-                  <option value={m}>{m}</option>
-                {/each}
-              </select>
-            </div>
-            <div class="control-group">
-              <label class="control-label" for="lw-quant">Quantization</label>
-              <div class="segmented-control">
-                {#each lightningQuants as q}
-                  <button
-                    class="seg-btn"
-                    class:seg-active={lightningQuant === q}
-                    onclick={() => (lightningQuant = q)}
-                  >{q}</button>
-                {/each}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="model-actions">
-        {#if initialisingModelId === '__lightning_whisper__'}
-          <div class="progress-section">
-            <div class="progress-bar"><div class="progress-fill extracting"></div></div>
-            <span class="progress-text">Initialising model...</span>
-          </div>
-        {:else if getLightningModelState(lightningModel, lightningQuant).downloading}
-          <div class="progress-section">
-            <div class="progress-bar">
-              <div class="progress-fill" style:width="{getLightningModelState(lightningModel, lightningQuant).downloadPercent}%"></div>
-            </div>
-            <span class="progress-text">{getLightningModelState(lightningModel, lightningQuant).downloadMessage} ({getLightningModelState(lightningModel, lightningQuant).downloadPercent}%)</span>
-          </div>
-        {:else if getLightningModelState(lightningModel, lightningQuant).error}
-          <div class="failed-section">
-            <span class="failed-text">{getLightningModelState(lightningModel, lightningQuant).error}</span>
-            <button class="retry-btn" onclick={() => { const k = getLightningModelKey(lightningModel, lightningQuant); lightningModelStates[k] = { ...getLightningModelState(lightningModel, lightningQuant), error: null }; }}>Dismiss</button>
-          </div>
-        {:else if getLightningModelState(lightningModel, lightningQuant).downloaded}
-          <button
-            class="btn-primary"
-            onclick={useLightningWhisper}
-            disabled={!lightningAvailable || isDownloading() || initialisingModelId !== null}
-          >
-            Use
-          </button>
-          <span class="meta-item" style="color: #4caf50; font-size: 12px;">✓ Downloaded</span>
-        {:else}
-          <button
-            class="btn-primary"
-            onclick={downloadLightningModel}
-            disabled={!lightningAvailable || isDownloading() || initialisingModelId !== null}
-          >
-            {lightningAvailable ? 'Download & Use' : 'Install Package First'}
-          </button>
-          <span class="progress-text" style="font-size: 11px; color: var(--color-text-tertiary);">
-            ~{lightningModel.includes('large') ? '1.5' : lightningModel.includes('medium') ? '0.9' : '0.3'}GB from HuggingFace
-          </span>
-        {/if}
-      </div>
-    </div>
-    {/if}
-  </div>
 
   <!-- Custom Models category -->
   <div class="category-section">

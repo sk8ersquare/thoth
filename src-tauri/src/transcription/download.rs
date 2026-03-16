@@ -57,6 +57,16 @@ pub fn check_model_downloaded(model_id: Option<String>) -> bool {
     // Get the model info from manifest
     let manifest = get_fallback_manifest();
 
+    // Quick-check for MLX Whisper and Lightning model IDs — not in manifest files
+    if let Some(ref id) = model_id {
+        if id.starts_with("mlx-") {
+            return crate::transcription::mlx_whisper::is_available();
+        }
+        if id.starts_with("lightning-whisper-") {
+            return true; // Lightning manages its own cache
+        }
+    }
+
     // Use provided model_id, or get from config, or fall back to recommended
     let model_id = model_id.unwrap_or_else(|| {
         // Try to get from config first

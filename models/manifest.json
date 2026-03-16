@@ -1,6 +1,6 @@
 {
-  "version": 9,
-  "updated": "2026-02-22T00:00:00Z",
+  "version": 10,
+  "updated": "2026-03-16T00:00:00Z",
   "models": [
     {
       "id": "ggml-large-v3-turbo",
@@ -96,6 +96,70 @@
       "languages": ["en"],
       "model_type": "fluidaudio_coreml",
       "recommended": true,
+      "min_app_version": null
+    },
+    {
+      "id": "mlx-large-v3-turbo",
+      "name": "Whisper Large V3 Turbo (MLX)",
+      "description": "Fast Whisper on Apple Silicon via MLX. ~800MB. Recommended MLX model — best speed/accuracy balance. Requires: pip3 install mlx-whisper",
+      "version": "1.0.0",
+      "download_url": "hf://mlx-community/whisper-large-v3-turbo",
+      "download_size": 800000000,
+      "extracted_size": 800000000,
+      "sha256": null,
+      "required_files": [],
+      "archive_directory": null,
+      "languages": ["en", "multilingual"],
+      "model_type": "mlx_whisper",
+      "recommended": false,
+      "min_app_version": null
+    },
+    {
+      "id": "mlx-large-v3-turbo-q4",
+      "name": "Whisper Large V3 Turbo Q4 (MLX)",
+      "description": "4-bit quantised Large V3 Turbo on Apple Silicon via MLX. ~400MB. Fastest MLX option with minimal quality loss. Requires: pip3 install mlx-whisper",
+      "version": "1.0.0",
+      "download_url": "hf://mlx-community/whisper-large-v3-turbo-q4",
+      "download_size": 400000000,
+      "extracted_size": 400000000,
+      "sha256": null,
+      "required_files": [],
+      "archive_directory": null,
+      "languages": ["en", "multilingual"],
+      "model_type": "mlx_whisper",
+      "recommended": false,
+      "min_app_version": null
+    },
+    {
+      "id": "mlx-large-v3",
+      "name": "Whisper Large V3 (MLX)",
+      "description": "Most accurate Whisper on Apple Silicon via MLX. ~1.5GB. Best quality, slower than turbo. Requires: pip3 install mlx-whisper",
+      "version": "1.0.0",
+      "download_url": "hf://mlx-community/whisper-large-v3-mlx",
+      "download_size": 1500000000,
+      "extracted_size": 1500000000,
+      "sha256": null,
+      "required_files": [],
+      "archive_directory": null,
+      "languages": ["en", "multilingual"],
+      "model_type": "mlx_whisper",
+      "recommended": false,
+      "min_app_version": null
+    },
+    {
+      "id": "mlx-small",
+      "name": "Whisper Small (MLX)",
+      "description": "Lightweight Whisper on Apple Silicon via MLX. ~250MB. Fast with decent accuracy. Requires: pip3 install mlx-whisper",
+      "version": "1.0.0",
+      "download_url": "hf://mlx-community/whisper-small-mlx",
+      "download_size": 250000000,
+      "extracted_size": 250000000,
+      "sha256": null,
+      "required_files": [],
+      "archive_directory": null,
+      "languages": ["en", "multilingual"],
+      "model_type": "mlx_whisper",
+      "recommended": false,
       "min_app_version": null
     }
   ]

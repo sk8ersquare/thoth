@@ -253,7 +253,18 @@ pub fn get_fallback_manifest() -> ModelManifest {
 
 /// Check if a specific model is downloaded locally
 pub fn is_model_downloaded(model: &RemoteModelInfo) -> bool {
+    // MLX Whisper models are cached by mlx-whisper itself in ~/.cache/huggingface
+    // They're considered "available" if mlx-whisper is installed (no local files to check)
+    if model.model_type == "mlx_whisper" {
+        return super::mlx_whisper::is_available();
+    }
+
     let model_dir = get_model_directory(&model.id);
+
+    // Models with no required files (edge case) are considered downloaded
+    if model.required_files.is_empty() {
+        return false;
+    }
 
     for file in &model.required_files {
         let path = model_dir.join(file);

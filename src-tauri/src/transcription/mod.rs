@@ -9,6 +9,7 @@ pub mod filter;
 pub mod fluidaudio;
 pub mod lightning_whisper;
 pub mod manifest;
+pub mod mlx_whisper;
 #[cfg(feature = "parakeet")]
 pub mod parakeet;
 pub mod whisper;
@@ -29,8 +30,10 @@ pub enum TranscriptionBackend {
     Parakeet,
     /// FluidAudio with Apple Neural Engine via CoreML (fastest on Apple Silicon)
     FluidAudio,
-    /// Lightning Whisper MLX via Python subprocess (Apple Silicon)
+    /// Lightning Whisper MLX via Python subprocess (Apple Silicon) — legacy
     LightningWhisper,
+    /// Whisper MLX via mlx-whisper Python package (Apple Silicon)
+    MlxWhisper,
 }
 
 impl Default for TranscriptionBackend {
@@ -48,6 +51,7 @@ pub enum TranscriptionService {
     #[cfg(all(target_os = "macos", feature = "fluidaudio"))]
     FluidAudio(fluidaudio::TranscriptionService),
     LightningWhisper(lightning_whisper::LightningWhisperTranscriptionService),
+    MlxWhisper(mlx_whisper::MlxWhisperService),
 }
 
 impl TranscriptionService {
@@ -77,6 +81,12 @@ impl TranscriptionService {
         Self::LightningWhisper(service)
     }
 
+    /// Create a new transcription service with the Whisper MLX backend
+    pub fn new_mlx_whisper(model_id: &str) -> Self {
+        let service = mlx_whisper::MlxWhisperService::new(model_id);
+        Self::MlxWhisper(service)
+    }
+
     /// Transcribe audio from a WAV file
     pub fn transcribe(&mut self, audio_path: &std::path::Path) -> anyhow::Result<String> {
         match self {
@@ -86,6 +96,7 @@ impl TranscriptionService {
             #[cfg(all(target_os = "macos", feature = "fluidaudio"))]
             Self::FluidAudio(service) => service.transcribe(audio_path),
             Self::LightningWhisper(service) => service.transcribe(audio_path),
+            Self::MlxWhisper(service) => service.transcribe(audio_path),
         }
     }
 
@@ -98,6 +109,7 @@ impl TranscriptionService {
             #[cfg(all(target_os = "macos", feature = "fluidaudio"))]
             Self::FluidAudio(_) => TranscriptionBackend::FluidAudio,
             Self::LightningWhisper(_) => TranscriptionBackend::LightningWhisper,
+            Self::MlxWhisper(_) => TranscriptionBackend::MlxWhisper,
         }
     }
 }
@@ -182,6 +194,16 @@ pub fn init_lightning_whisper_transcription(
         model,
         quant
     );
+    Ok(())
+}
+
+/// Initialise the transcription service with Whisper MLX backend
+#[tauri::command]
+pub fn init_mlx_whisper_transcription(model_id: String) -> Result<(), String> {
+    let service = TranscriptionService::new_mlx_whisper(&model_id);
+    let mut guard = get_service().lock();
+    *guard = Some(service);
+    tracing::info!("Whisper MLX transcription service initialised (model_id={})", model_id);
     Ok(())
 }
 
@@ -384,6 +406,24 @@ pub fn warmup_transcription() {
         // FluidAudio unavailable/not cached — fall through to Whisper
     }
 
+    // ── Whisper MLX path ───────────────────────────────────────────────
+    // mlx-whisper model IDs start with "mlx-" and are not in the standard manifest.
+    if let Some(ref sid) = selected_id {
+        if sid.starts_with("mlx-") {
+            // mlx_whisper downloads/caches models itself via HF — always available if package installed
+            if mlx_whisper::is_available() {
+                let service = TranscriptionService::new_mlx_whisper(sid);
+                let mut guard = get_service().lock();
+                *guard = Some(service);
+                tracing::info!("Whisper MLX model '{}' warmed up on startup", sid);
+                return;
+            } else {
+                tracing::warn!("mlx-whisper package not installed, falling back");
+                // Fall through to Whisper/Parakeet fallback
+            }
+        }
+    }
+
     // ── Lightning Whisper path ─────────────────────────────────────────
     // Lightning model IDs are not in the manifest; handle them separately.
     if let Some(ref sid) = selected_id {
@@ -417,7 +457,9 @@ pub fn warmup_transcription() {
     // ── Whisper/Parakeet path ──────────────────────────────────────────
     let is_non_fluid_manifest_model = selected_id.is_some()
         && selected_model_type != Some("fluidaudio_coreml")
-        && selected_id.as_deref().map(|id| !id.starts_with("lightning-whisper-")).unwrap_or(false);
+        && selected_id.as_deref().map(|id| {
+            !id.starts_with("lightning-whisper-") && !id.starts_with("mlx-")
+        }).unwrap_or(false);
 
     if is_non_fluid_manifest_model {
         // A specific non-FluidAudio, non-Lightning model is selected — try to init it
@@ -534,6 +576,7 @@ pub fn get_transcription_backend() -> Option<String> {
         TranscriptionBackend::Parakeet => "parakeet".to_string(),
         TranscriptionBackend::FluidAudio => "fluidaudio".to_string(),
         TranscriptionBackend::LightningWhisper => "lightning_whisper".to_string(),
+        TranscriptionBackend::MlxWhisper => "mlx_whisper".to_string(),
     })
 }
 
