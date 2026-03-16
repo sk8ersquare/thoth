@@ -1,20 +1,20 @@
-//! Lightning Whisper MLX backend
-//!
-//! Uses the lightning-whisper-mlx Python package for fast Whisper transcription
-//! on Apple Silicon via MLX. Runs as a subprocess.
-//!
-//! The package exports `LightningWhisperMLX` (not `TranscriptionModel`).
-//! Models are downloaded from HuggingFace on first use (cached in ./mlx_models/).
-//! The package is typically installed under the system Python (/usr/bin/python3).
+//! Lightning Whisper MLX backend with download progress support
 
 use anyhow::{anyhow, Result};
-use std::path::Path;
-use std::process::Command;
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::time::Duration;
+use tauri::{AppHandle, Emitter};
 
-/// Cache the discovered Python executable that has lightning_whisper_mlx
 static PYTHON_PATH: OnceLock<String> = OnceLock::new();
+
+/// Get the directory where MLX models are stored: ~/.thoth/mlx_models/
+pub fn get_mlx_models_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    PathBuf::from(home).join(".thoth").join("mlx_models")
+}
 
 /// Find the Python executable that has lightning_whisper_mlx installed
 fn find_python_with_lightning() -> &'static str {
@@ -31,8 +31,8 @@ fn find_python_with_lightning() -> &'static str {
         for candidate in &candidates {
             let ok = Command::new(candidate)
                 .args(["-c", "from lightning_whisper_mlx import LightningWhisperMLX"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false);
@@ -44,6 +44,24 @@ fn find_python_with_lightning() -> &'static str {
         tracing::warn!("Lightning Whisper MLX: no Python with package found, defaulting to /usr/bin/python3");
         "/usr/bin/python3".to_string()
     })
+}
+
+/// Map model+quant to expected directory name (mirrors lightning_whisper_mlx naming)
+pub fn model_dir_name(model: &str, quant: Option<&str>) -> String {
+    match quant {
+        Some("4bit") if model.contains("distil") => format!("{}-4-bit", model),
+        Some("8bit") if model.contains("distil") => format!("{}-8-bit", model),
+        _ => model.to_string(),
+    }
+}
+
+/// Check if a Lightning Whisper model is already downloaded
+pub fn is_model_downloaded(model: &str, quant: Option<&str>) -> bool {
+    let models_dir = get_mlx_models_dir();
+    let dir_name = model_dir_name(model, quant);
+    let model_path = models_dir.join(&dir_name);
+    // Check for the two required files
+    model_path.join("weights.npz").exists() && model_path.join("config.json").exists()
 }
 
 pub struct LightningWhisperTranscriptionService {
@@ -59,14 +77,13 @@ impl LightningWhisperTranscriptionService {
         }
     }
 
-    /// Check if lightning-whisper-mlx is importable with the correct class name
     pub fn is_available() -> bool {
         let candidates = ["/usr/bin/python3", "python3"];
         for candidate in &candidates {
             let ok = Command::new(candidate)
                 .args(["-c", "from lightning_whisper_mlx import LightningWhisperMLX"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false);
@@ -83,10 +100,10 @@ impl LightningWhisperTranscriptionService {
             None => "None".to_string(),
         };
 
-        // Use LightningWhisperMLX (not TranscriptionModel which doesn't exist)
-        // result may be a dict with "text" key or a plain string depending on version
+        // Script uses LightningWhisperMLX (not TranscriptionModel)
+        // Sets local_dir context so model loads from ~/.thoth/mlx_models/
         let script = format!(
-            r#"from lightning_whisper_mlx import LightningWhisperMLX; import sys; m = LightningWhisperMLX(model="{model}", batch_size=12, quant={quant}); result = m.transcribe(sys.argv[1]); text = result.get("text", "") if isinstance(result, dict) else str(result); print(text.strip())"#,
+            r#"import sys, os; os.chdir(os.path.expanduser("~/.thoth")); from lightning_whisper_mlx import LightningWhisperMLX; m = LightningWhisperMLX(model="{model}", batch_size=12, quant={quant}); result = m.transcribe(sys.argv[1]); text = result.get("text", "") if isinstance(result, dict) else str(result); print(text.strip())"#,
             model = self.model,
             quant = quant_repr,
         );
@@ -98,21 +115,17 @@ impl LightningWhisperTranscriptionService {
         let python = find_python_with_lightning();
 
         tracing::info!(
-            "Lightning Whisper MLX: transcribing {} with model={}, quant={:?}, python={}",
-            audio_path_str,
-            self.model,
-            self.quant,
-            python,
+            "Lightning Whisper MLX: transcribing {} model={} quant={:?} python={}",
+            audio_path_str, self.model, self.quant, python,
         );
 
-        // Generous timeout — first run downloads model from HuggingFace
         let timeout = Duration::from_secs(300);
         let start = std::time::Instant::now();
 
         let mut child = Command::new(python)
             .args(["-c", &script, audio_path_str])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| anyhow!("Failed to start Lightning Whisper MLX: {}", e))?;
 
@@ -130,9 +143,8 @@ impl LightningWhisperTranscriptionService {
             }
         }
 
-        let output = child
-            .wait_with_output()
-            .map_err(|e| anyhow!("Failed to read Lightning Whisper MLX output: {}", e))?;
+        let output = child.wait_with_output()
+            .map_err(|e| anyhow!("Failed to read output: {}", e))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -149,16 +161,20 @@ impl LightningWhisperTranscriptionService {
     }
 }
 
-/// Tauri command: Check if Lightning Whisper MLX is available (correct class name)
+// ── Tauri Commands ──────────────────────────────────────────────────────────
+
 #[tauri::command]
 pub fn is_lightning_whisper_available() -> bool {
     LightningWhisperTranscriptionService::is_available()
 }
 
-/// Tauri command: Install lightning-whisper-mlx via pip3
+#[tauri::command]
+pub fn check_lightning_model_downloaded(model: String, quant: Option<String>) -> bool {
+    is_model_downloaded(&model, quant.as_deref())
+}
+
 #[tauri::command]
 pub async fn install_lightning_whisper() -> Result<String, String> {
-    // Install to the system python where it's most likely to work on macOS
     let output = tokio::task::spawn_blocking(|| {
         std::process::Command::new("/usr/bin/pip3")
             .args(["install", "lightning-whisper-mlx"])
@@ -220,5 +236,146 @@ end tell"#,
     }
 
     tracing::info!("Lightning Whisper MLX install triggered in external terminal");
+    Ok(())
+}
+
+/// Download a Lightning Whisper model, emitting progress events to the frontend.
+/// Emits `lightning-download-progress` events with { model, status, percent, message }.
+/// Emits `lightning-download-complete` when done.
+/// Emits `lightning-download-error` on failure.
+#[tauri::command]
+pub async fn download_lightning_model(
+    app: AppHandle,
+    model: String,
+    quant: Option<String>,
+) -> Result<(), String> {
+    // Ensure model dir exists
+    let models_dir = get_mlx_models_dir();
+    std::fs::create_dir_all(&models_dir)
+        .map_err(|e| format!("Failed to create model dir: {}", e))?;
+
+    let quant_repr = match quant.as_deref() {
+        Some(q) => format!("\"{}\"", q),
+        None => "None".to_string(),
+    };
+
+    // Python script that downloads model and prints progress to stdout
+    // We chdir to ~/.thoth so the library's ./mlx_models/ resolves correctly
+    let script = format!(
+        r#"
+import os, sys, json
+os.chdir(os.path.expanduser("~/.thoth"))
+
+from huggingface_hub import hf_hub_download
+import lightning_whisper_mlx.lightning as lw
+
+model_name = "{model}"
+quant = {quant}
+
+models = lw.models
+if model_name not in models:
+    print(json.dumps({{"error": f"Unknown model: {{model_name}}"}}))
+    sys.exit(1)
+
+if quant and "distil" not in model_name:
+    repo_id = models[model_name].get(quant, models[model_name]["base"])
+    dir_name = model_name
+else:
+    repo_id = models[model_name]["base"]
+    dir_name = model_name
+    if quant and "distil" in model_name:
+        dir_name = model_name + ("-4-bit" if quant == "4bit" else "-8-bit")
+
+if "distil" in model_name:
+    files = [
+        (f"./mlx_models/{{dir_name}}/weights.npz", "./"),
+        (f"./mlx_models/{{dir_name}}/config.json", "./"),
+    ]
+else:
+    files = [
+        ("weights.npz", f"./mlx_models/{{dir_name}}"),
+        ("config.json", f"./mlx_models/{{dir_name}}"),
+    ]
+
+total = len(files)
+for i, (filename, local_dir) in enumerate(files):
+    print(json.dumps({{"status": "downloading", "percent": int((i/total)*100), "message": f"Downloading {{filename.split('/')[-1]}} ({{}}/{{}})...".format(i+1, total)}}), flush=True)
+    hf_hub_download(repo_id=repo_id, filename=filename, local_dir=local_dir)
+
+print(json.dumps({{"status": "complete", "percent": 100, "message": "Download complete"}}), flush=True)
+"#,
+        model = model,
+        quant = quant_repr,
+    );
+
+    let python = find_python_with_lightning();
+    let model_clone = model.clone();
+
+    let app_clone = app.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut child = match Command::new(python)
+            .args(["-c", &script])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = app_clone.emit("lightning-download-error", serde_json::json!({
+                    "model": model_clone,
+                    "error": format!("Failed to start Python: {}", e)
+                }));
+                return;
+            }
+        };
+
+        let stdout = child.stdout.take().unwrap();
+        let reader = BufReader::new(stdout);
+
+        for line in reader.lines() {
+            match line {
+                Ok(l) => {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&l) {
+                        if val.get("error").is_some() {
+                            let _ = app_clone.emit("lightning-download-error", serde_json::json!({
+                                "model": model_clone,
+                                "error": val["error"].as_str().unwrap_or("Unknown error")
+                            }));
+                            return;
+                        }
+                        let _ = app_clone.emit("lightning-download-progress", serde_json::json!({
+                            "model": model_clone,
+                            "status": val["status"],
+                            "percent": val["percent"],
+                            "message": val["message"]
+                        }));
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+
+        let status = child.wait();
+        match status {
+            Ok(s) if !s.success() => {
+                let _ = app_clone.emit("lightning-download-error", serde_json::json!({
+                    "model": model_clone,
+                    "error": "Download process failed"
+                }));
+            }
+            Ok(_) => {
+                let _ = app_clone.emit("lightning-download-complete", serde_json::json!({
+                    "model": model_clone
+                }));
+            }
+            Err(e) => {
+                let _ = app_clone.emit("lightning-download-error", serde_json::json!({
+                    "model": model_clone,
+                    "error": format!("Failed to wait for process: {}", e)
+                }));
+            }
+        }
+    }).await.map_err(|e| format!("Task error: {}", e))?;
+
     Ok(())
 }

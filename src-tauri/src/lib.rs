@@ -379,6 +379,8 @@ pub fn run() {
             transcription::lightning_whisper::is_lightning_whisper_available,
             transcription::lightning_whisper::install_lightning_whisper,
             transcription::lightning_whisper::install_lightning_whisper_mlx,
+            transcription::lightning_whisper::check_lightning_model_downloaded,
+            transcription::lightning_whisper::download_lightning_model,
             transcription::list_custom_models,
             transcription::add_custom_model,
             transcription::remove_custom_model,

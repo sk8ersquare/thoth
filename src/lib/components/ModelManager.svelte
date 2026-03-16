@@ -61,6 +61,26 @@
   let lightningModel = $state('large-v3');
   let lightningQuant = $state<string>('None');
   let lightningSelectedModel = $state<string | null>(null);
+
+  interface LightningModelState {
+    downloaded: boolean;
+    downloading: boolean;
+    downloadPercent: number;
+    downloadMessage: string;
+    error: string | null;
+  }
+
+  let lightningModelStates = $state<Record<string, LightningModelState>>({});
+
+  function getLightningModelKey(model: string, quant: string): string {
+    return `${model}::${quant}`;
+  }
+
+  function getLightningModelState(model: string, quant: string): LightningModelState {
+    const key = getLightningModelKey(model, quant);
+    return lightningModelStates[key] ?? { downloaded: false, downloading: false, downloadPercent: 0, downloadMessage: '', error: null };
+  }
+
   const lightningModels = [
     'tiny', 'small', 'distil-small.en', 'base', 'medium', 'distil-medium.en',
     'large', 'large-v2', 'distil-large-v2', 'large-v3', 'distil-large-v3',
@@ -89,6 +109,9 @@
   let unlistenProgress: UnlistenFn | null = null;
   let unlistenComplete: UnlistenFn | null = null;
   let unlistenError: UnlistenFn | null = null;
+  let unlistenLightningProgress: UnlistenFn | null = null;
+  let unlistenLightningComplete: UnlistenFn | null = null;
+  let unlistenLightningError: UnlistenFn | null = null;
 
   onMount(() => {
     loadModels(false);
@@ -96,11 +119,15 @@
     checkLightningAvailable();
     loadCustomModels();
     setupEventListeners();
+    setupLightningEventListeners();
 
     return () => {
       if (unlistenProgress) unlistenProgress();
       if (unlistenComplete) unlistenComplete();
       if (unlistenError) unlistenError();
+      if (unlistenLightningProgress) unlistenLightningProgress();
+      if (unlistenLightningComplete) unlistenLightningComplete();
+      if (unlistenLightningError) unlistenLightningError();
     };
   });
 
@@ -138,6 +165,91 @@
       downloadingModelId = null;
     });
   }
+
+  async function setupLightningEventListeners() {
+    unlistenLightningProgress = await listen<{
+      model: string; status: string; percent: number; message: string
+    }>('lightning-download-progress', (event) => {
+      const key = `${event.payload.model}::${lightningQuant}`;
+      lightningModelStates[key] = {
+        ...getLightningModelState(event.payload.model, lightningQuant),
+        downloading: true,
+        downloadPercent: event.payload.percent,
+        downloadMessage: event.payload.message,
+        error: null,
+      };
+    });
+
+    unlistenLightningComplete = await listen<{ model: string }>('lightning-download-complete', async (event) => {
+      const key = `${event.payload.model}::${lightningQuant}`;
+      lightningModelStates[key] = {
+        downloaded: true,
+        downloading: false,
+        downloadPercent: 100,
+        downloadMessage: 'Downloaded',
+        error: null,
+      };
+      // Auto-use the model after download
+      await useLightningWhisper();
+    });
+
+    unlistenLightningError = await listen<{ model: string; error: string }>('lightning-download-error', (event) => {
+      const key = `${event.payload.model}::${lightningQuant}`;
+      lightningModelStates[key] = {
+        ...getLightningModelState(event.payload.model, lightningQuant),
+        downloading: false,
+        downloadPercent: 0,
+        downloadMessage: '',
+        error: event.payload.error,
+      };
+    });
+  }
+
+  async function checkLightningModelDownloaded(model: string, quant: string): Promise<boolean> {
+    try {
+      const downloaded = await invoke<boolean>('check_lightning_model_downloaded', {
+        model,
+        quant: quant === 'None' ? null : quant,
+      });
+      const key = getLightningModelKey(model, quant);
+      lightningModelStates[key] = {
+        ...getLightningModelState(model, quant),
+        downloaded,
+      };
+      return downloaded;
+    } catch {
+      return false;
+    }
+  }
+
+  async function downloadLightningModel(): Promise<void> {
+    const key = getLightningModelKey(lightningModel, lightningQuant);
+    lightningModelStates[key] = {
+      downloaded: false,
+      downloading: true,
+      downloadPercent: 0,
+      downloadMessage: 'Starting download...',
+      error: null,
+    };
+    try {
+      await invoke('download_lightning_model', {
+        model: lightningModel,
+        quant: lightningQuant === 'None' ? null : lightningQuant,
+      });
+    } catch (e) {
+      lightningModelStates[key] = {
+        ...getLightningModelState(lightningModel, lightningQuant),
+        downloading: false,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
+  }
+
+  $effect(() => {
+    if (lightningAvailable) {
+      checkLightningModelDownloaded(lightningModel, lightningQuant);
+    }
+  });
 
   async function loadModels(forceRefresh: boolean) {
     loading = true;
@@ -704,14 +816,40 @@
         {#if initialisingModelId === '__lightning_whisper__'}
           <div class="progress-section">
             <div class="progress-bar"><div class="progress-fill extracting"></div></div>
-            <span class="progress-text">Loading model... (first use downloads from HuggingFace, may take a minute)</span>
+            <span class="progress-text">Initialising model...</span>
           </div>
-        {:else}
+        {:else if getLightningModelState(lightningModel, lightningQuant).downloading}
+          <div class="progress-section">
+            <div class="progress-bar">
+              <div class="progress-fill" style:width="{getLightningModelState(lightningModel, lightningQuant).downloadPercent}%"></div>
+            </div>
+            <span class="progress-text">{getLightningModelState(lightningModel, lightningQuant).downloadMessage} ({getLightningModelState(lightningModel, lightningQuant).downloadPercent}%)</span>
+          </div>
+        {:else if getLightningModelState(lightningModel, lightningQuant).error}
+          <div class="failed-section">
+            <span class="failed-text">{getLightningModelState(lightningModel, lightningQuant).error}</span>
+            <button class="retry-btn" onclick={() => { const k = getLightningModelKey(lightningModel, lightningQuant); lightningModelStates[k] = { ...getLightningModelState(lightningModel, lightningQuant), error: null }; }}>Dismiss</button>
+          </div>
+        {:else if getLightningModelState(lightningModel, lightningQuant).downloaded}
           <button
             class="btn-primary"
             onclick={useLightningWhisper}
             disabled={!lightningAvailable || isDownloading() || initialisingModelId !== null}
-          >Use</button>
+          >
+            Use
+          </button>
+          <span class="meta-item" style="color: #4caf50; font-size: 12px;">✓ Downloaded</span>
+        {:else}
+          <button
+            class="btn-primary"
+            onclick={downloadLightningModel}
+            disabled={!lightningAvailable || isDownloading() || initialisingModelId !== null}
+          >
+            {lightningAvailable ? 'Download & Use' : 'Install Package First'}
+          </button>
+          <span class="progress-text" style="font-size: 11px; color: var(--color-text-tertiary);">
+            ~{lightningModel.includes('large') ? '1.5' : lightningModel.includes('medium') ? '0.9' : '0.3'}GB from HuggingFace
+          </span>
         {/if}
       </div>
     </div>
