@@ -385,7 +385,7 @@ pub fn to_model_info(remote: &RemoteModelInfo, selected_id: Option<&str>) -> Mod
         disk_size,
         recommended: remote.recommended,
         languages: remote.languages.clone(),
-        update_available: false, // TODO: Implement version comparison
+        update_available: false,
         selected,
         model_type: remote.model_type.clone(),
         backend_available: is_backend_available(&remote.model_type),

@@ -12,7 +12,7 @@ use tokio::time::sleep;
 
 /// Default timeout for API requests in seconds
 /// Set to 120s to accommodate local models (e.g. oMLX) that may take longer
-/// to generate a response — especially when the model is still warming up.
+/// to generate a response, especially when the model is still warming up.
 const DEFAULT_TIMEOUT_SECS: u64 = 120;
 
 /// Maximum number of retry attempts
@@ -291,11 +291,15 @@ impl OpenAiCompatClient {
 
         if !response.status().is_success() {
             let status = response.status().as_u16();
-            let message = response
+            let body = response
                 .text()
                 .await
                 .unwrap_or_else(|_| "unknown error".to_string());
-            return Err(OpenAiCompatError::ServerError { status, message });
+            tracing::error!("OpenAI-compat server error ({}): {}", status, body);
+            return Err(OpenAiCompatError::ServerError {
+                status,
+                message: format!("server returned status {}", status),
+            });
         }
 
         let chat_response: ChatCompletionResponse = response

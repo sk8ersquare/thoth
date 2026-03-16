@@ -358,7 +358,7 @@ function createConfigStore() {
   async function save(): Promise<boolean> {
     if (!isInitialised) {
       console.warn(
-        '[ConfigStore] save() called before config was loaded — ignoring to prevent overwriting persisted settings with defaults'
+        '[ConfigStore] save() called before config was loaded; ignoring to prevent overwriting persisted settings with defaults'
       );
       return false;
     }

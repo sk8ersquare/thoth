@@ -483,7 +483,7 @@
             {:else if ollamaAvailable}
               <span class="status-connected">Connected</span>
             {:else if configStore.config.enhancement.anthropicApiKey}
-              <span class="status-error">Not connected &mdash; check your API key</span>
+              <span class="status-error">Not connected; check your API key</span>
             {:else}
               <span class="status-warning">Add API key to connect</span>
             {/if}
