@@ -279,11 +279,9 @@ pub async fn pipeline_stop_and_process(
     // Update tray to show idle state
     tray::set_recording_state(&app, false);
 
-    // Hide the recording indicator (but keep it visible during processing - it will show spinner)
-    // Actually, let's hide it when recording stops since we have processing state in the main window
-    if let Err(e) = crate::recording_indicator::hide_recording_indicator(app.clone()) {
-        tracing::warn!("Pipeline: Failed to hide recording indicator: {}", e);
-    }
+    // Keep the recording indicator visible during processing (it will show spinner + "Processing..." text)
+    // Do NOT hide it yet — processing events will update the visualizer state
+    tracing::info!("Pipeline: Recording stopped, indicator now shows processing state");
 
     // Stop recording
     let audio_path = match crate::audio::stop_recording() {
@@ -315,6 +313,11 @@ pub async fn pipeline_stop_and_process(
             tracing::error!("Pipeline: Processing failed: {}", e);
             emit_progress(&app, PipelineState::Failed, e);
         }
+    }
+
+    // Now hide the recording indicator after processing completes
+    if let Err(e) = crate::recording_indicator::hide_recording_indicator(app.clone()) {
+        tracing::warn!("Pipeline: Failed to hide recording indicator after processing: {}", e);
     }
 
     tracing::info!("Pipeline: Returning result from stop_and_process");

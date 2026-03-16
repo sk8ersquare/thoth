@@ -330,8 +330,22 @@ print(json.dumps({{"status": "complete", "percent": 100, "message": "Download co
         };
 
         let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
         let reader = BufReader::new(stdout);
+        let mut stderr_lines = Vec::new();
 
+        // Capture stderr in a background thread (non-blocking)
+        let app_for_stderr = app_clone.clone();
+        let stderr_handle = std::thread::spawn(move || {
+            for line in BufReader::new(stderr).lines() {
+                if let Ok(l) = line {
+                    stderr_lines.push(l);
+                }
+            }
+            stderr_lines
+        });
+
+        // Process stdout for progress events
         for line in reader.lines() {
             match line {
                 Ok(l) => {
@@ -358,9 +372,15 @@ print(json.dumps({{"status": "complete", "percent": 100, "message": "Download co
         let status = child.wait();
         match status {
             Ok(s) if !s.success() => {
+                // Collect stderr from background thread
+                let stderr_msg = stderr_handle.join().ok().map(|lines| {
+                    lines.iter().rev().take(3).cloned().collect::<Vec<_>>().join("\n")
+                }).filter(|s: &String| !s.is_empty());
+                
+                let error_msg = stderr_msg.unwrap_or_else(|| "Download process failed".to_string());
                 let _ = app_clone.emit("lightning-download-error", serde_json::json!({
                     "model": model_clone,
-                    "error": "Download process failed"
+                    "error": error_msg
                 }));
             }
             Ok(_) => {

@@ -87,16 +87,43 @@
   ];
   const lightningQuants = ['None', '4bit', '8bit'];
 
-  // Collapsed state for each category section
+  // Collapsed state for each category section (persisted to localStorage)
   let collapsedSections = $state<Record<string, boolean>>({
-    parakeet: false,
-    whisperkit: false,
-    lightning: false,
-    custom: false,
+    parakeet: true,   // collapsed by default
+    whisperkit: true,
+    lightning: true,
+    custom: false,    // custom models expanded
+  });
+
+  // Load collapsed sections from localStorage
+  function loadCollapsedSections() {
+    try {
+      const saved = localStorage.getItem('modelManagerCollapsedSections');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        collapsedSections = { ...collapsedSections, ...parsed };
+      }
+    } catch (e) {
+      console.warn('Failed to load collapsed sections:', e);
+    }
+  }
+
+  // Save collapsed sections to localStorage
+  function saveCollapsedSections() {
+    try {
+      localStorage.setItem('modelManagerCollapsedSections', JSON.stringify(collapsedSections));
+    } catch (e) {
+      console.warn('Failed to save collapsed sections:', e);
+    }
+  }
+
+  onMount(() => {
+    loadCollapsedSections();
   });
 
   function toggleSection(key: string) {
     collapsedSections[key] = !collapsedSections[key];
+    saveCollapsedSections();
   }
 
   // Custom model form state
