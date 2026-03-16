@@ -347,7 +347,8 @@ pub fn is_backend_available(model_type: &str) -> bool {
         "whisper_ggml" | "custom_whisper_ggml" => true,
         "nemo_transducer" | "custom_parakeet" => cfg!(feature = "parakeet"),
         "fluidaudio_coreml" => cfg!(all(target_os = "macos", feature = "fluidaudio")),
-        "lightning_whisper_mlx" => true, // availability checked at runtime via is_available()
+        "lightning_whisper_mlx" => true,
+        "mlx_whisper" => true, // availability checked at runtime via is_mlx_whisper_available
         _ => false,
     }
 }
