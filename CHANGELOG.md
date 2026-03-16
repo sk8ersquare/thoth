@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2026.3.2] - 2026-03-16
+
+### Changed
+- Applied master project governance standards across all changed files since v2026.2.8
+- Security: API error responses no longer leak raw response bodies; HTTP status code only
+- Locale: Replaced em dashes with semicolons/commas throughout comments and UI strings
+- Docs: CHANGELOG entries added for v2026.2.8 through v2026.3.1 in Keep a Changelog format
+- Code quality: Removed stale TODO comment in manifest.rs; fixed misleading comment in pipeline.rs
+
 ## [2026.3.1] - 2026-03-16
 
 ### Added
