@@ -53,7 +53,12 @@
   let downloadingModelId = $state<string | null>(null);
   let initialisingModelId = $state<string | null>(null);
 
-  // Lightning Whisper MLX state
+  // Whisper MLX (mlx-whisper package) state
+  let mlxAvailable = $state(false);
+  let mlxInstalling = $state(false);
+  let mlxInstallError = $state<string | null>(null);
+
+  // Lightning Whisper MLX state (legacy, kept for fallback)
   let lightningAvailable = $state(false);
   let lightningInstalling = $state(false);
   let lightningInstallResult = $state<string | null>(null);
@@ -144,6 +149,7 @@
     loadModels(false);
     loadLastChecked();
     checkLightningAvailable();
+    checkMlxAvailable();
     loadCustomModels();
     setupEventListeners();
     setupLightningEventListeners();
@@ -304,6 +310,27 @@
       lightningAvailable = await invoke<boolean>('is_lightning_whisper_available');
     } catch {
       lightningAvailable = false;
+    }
+  }
+
+  async function checkMlxAvailable() {
+    try {
+      mlxAvailable = await invoke<boolean>('is_mlx_whisper_available');
+    } catch {
+      mlxAvailable = false;
+    }
+  }
+
+  async function installMlxWhisper() {
+    mlxInstalling = true;
+    mlxInstallError = null;
+    try {
+      await invoke('install_mlx_whisper');
+      mlxAvailable = true;
+    } catch (e) {
+      mlxInstallError = e instanceof Error ? e.message : String(e);
+    } finally {
+      mlxInstalling = false;
     }
   }
 
@@ -736,6 +763,12 @@
                 </div>
               </div>
 
+              {#if model.model_type === 'mlx_whisper' && mlxAvailable}
+                <p class="backend-warning" style="color: var(--color-text-tertiary); background: transparent; padding: 0; margin: 0; font-size: 11px;">
+                  ⚡ Model weights (~{model.size_mb} MB) download from HuggingFace on first use, then cached.
+                </p>
+              {/if}
+
               {#if !model.backend_available}
                 <p class="backend-warning">
                   {#if model.model_type === 'fluidaudio_coreml'}
@@ -775,13 +808,23 @@
                         : 'Loading model\u2026'}
                     </span>
                   </div>
+                {:else if model.model_type === 'mlx_whisper' && !mlxAvailable}
+                  {#if mlxInstallError}
+                    <span class="failed-text" style="font-size:12px">{mlxInstallError}</span>
+                  {/if}
+                  <button class="btn-primary install-btn" onclick={installMlxWhisper} disabled={mlxInstalling}>
+                    {#if mlxInstalling}<span class="btn-spinner"></span> Installing…{:else}Install mlx-whisper{/if}
+                  </button>
+                  <span class="progress-text" style="font-size:11px">Required Python package (~5s)</span>
                 {:else if model.downloaded && model.selected}
                   <button class="btn-outline btn-danger" onclick={() => confirmDelete(model)} disabled={isDownloading() || initialisingModelId !== null}>Delete</button>
                 {:else if model.downloaded}
                   <button class="btn-primary" onclick={() => selectModel(model)} disabled={isDownloading() || initialisingModelId !== null || !model.backend_available}>
                     {model.backend_available ? 'Use Model' : 'Unavailable'}
                   </button>
-                  <button class="btn-outline btn-danger" onclick={() => confirmDelete(model)} disabled={isDownloading() || initialisingModelId !== null}>Delete</button>
+                  {#if model.model_type !== 'mlx_whisper'}
+                    <button class="btn-outline btn-danger" onclick={() => confirmDelete(model)} disabled={isDownloading() || initialisingModelId !== null}>Delete</button>
+                  {/if}
                 {:else}
                   <button class="btn-primary" onclick={() => downloadModel(model)} disabled={isDownloading() || !model.backend_available}>
                     {#if !model.backend_available}Unavailable{:else if model.model_type === 'fluidaudio_coreml'}Initialise{:else}Download{/if}
