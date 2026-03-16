@@ -663,39 +663,30 @@
     </div>
   {/if}
 
-  <!-- Downloaded summary section -->
-  {#if downloadedModels().length > 0 || lightningSelectedModel}
+  <!-- Active model section -->
+  {#if models.some((m) => m.selected) || lightningSelectedModel}
+    {@const activeModel = models.find((m) => m.selected)}
     <div class="section-header">
-      <span class="section-title">Downloaded</span>
+      <span class="section-title">Active</span>
     </div>
     <div class="downloaded-strip">
-      {#each downloadedModels() as model (model.id)}
-        {@const cat = categories.find((c) => c.key === getCategory(model))}
+      {#if activeModel}
+        {@const cat = categories.find((c) => c.key === getCategory(activeModel))}
         <button
-          class="downloaded-chip"
-          class:active={model.selected}
-          onclick={() => { if (!model.selected && model.backend_available) selectModel(model); }}
-          disabled={isDownloading() || initialisingModelId !== null || !model.backend_available}
-          title={model.selected ? 'Active model' : 'Switch to this model'}
+          class="downloaded-chip active"
+          disabled
+          title="Currently active model"
         >
           {#if cat}
             <span class="cat-icon cat-icon-sm" style:background={cat.iconBg}>
               {#if cat.iconEmoji}{cat.iconEmoji}{:else}{cat.iconText}{/if}
             </span>
           {/if}
-          <span class="chip-name">{model.name}</span>
-          {#if model.selected}
-            <span class="badge badge-active">Active</span>
-          {:else if initialisingModelId === model.id}
-            <span class="badge badge-loading">Loading…</span>
-          {/if}
+          <span class="chip-name">{activeModel.name}</span>
+          <span class="badge badge-active">Active</span>
         </button>
-      {/each}
-      {#if lightningSelectedModel}
-        <button
-          class="downloaded-chip active"
-          title="Active model (Lightning Whisper MLX)"
-        >
+      {:else if lightningSelectedModel}
+        <button class="downloaded-chip active" disabled title="Currently active model">
           <span class="cat-icon cat-icon-sm" style:background="#9b59b6">{'\u26A1'}</span>
           <span class="chip-name">{lightningSelectedModel}</span>
           <span class="badge badge-active">Active</span>
