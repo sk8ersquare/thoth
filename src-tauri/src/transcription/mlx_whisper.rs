@@ -88,12 +88,6 @@ impl MlxWhisperService {
     pub fn ensure_cached(&self) {
         let python = find_python().to_string();
         let hf_repo = self.hf_repo.clone();
-        let path_env = std::env::var("PATH").unwrap_or_default();
-        let path_with_brew = if path_env.contains("/opt/homebrew/bin") {
-            path_env
-        } else {
-            format!("/opt/homebrew/bin:/usr/local/bin:{}", path_env)
-        };
         // Run in background thread — don't block init
         std::thread::spawn(move || {
             tracing::info!("MLX Whisper: pre-fetching model weights for {} (background)", hf_repo);
@@ -104,7 +98,6 @@ impl MlxWhisperService {
             );
             let _ = Command::new(&python)
                 .args(["-c", &script])
-                .env("PATH", &path_with_brew)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status();
@@ -120,10 +113,19 @@ impl MlxWhisperService {
         let python = find_python();
         let hf_repo = &self.hf_repo;
 
-        // Simple one-liner: mlx_whisper handles model caching automatically
+        // Load the WAV ourselves using Python's built-in `wave` module and pass
+        // a numpy array directly to mlx_whisper — no ffmpeg dependency at all.
+        // Thoth already records clean 16kHz mono PCM WAV files so no resampling needed.
         let script = format!(
-            "import mlx_whisper, sys; \
-             result = mlx_whisper.transcribe(sys.argv[1], path_or_hf_repo='{}', verbose=False); \
+            "import wave, numpy as np, mlx_whisper, sys; \
+             path = sys.argv[1]; \
+             f = wave.open(path, 'rb'); \
+             ch = f.getnchannels(); \
+             frames = f.readframes(f.getnframes()); \
+             f.close(); \
+             audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0; \
+             audio = audio.reshape(-1, ch).mean(axis=1) if ch > 1 else audio; \
+             result = mlx_whisper.transcribe(audio, path_or_hf_repo='{}', verbose=False); \
              print(result.get('text', '').strip() if isinstance(result, dict) else str(result).strip())",
             hf_repo
         );
@@ -133,19 +135,8 @@ impl MlxWhisperService {
             audio_path_str, hf_repo
         );
 
-        // mlx_whisper calls ffmpeg internally to decode audio.
-        // Tauri apps don't inherit the user's shell PATH, so Homebrew's ffmpeg
-        // at /opt/homebrew/bin is invisible. Inject it explicitly.
-        let path_env = std::env::var("PATH").unwrap_or_default();
-        let path_with_brew = if path_env.contains("/opt/homebrew/bin") {
-            path_env
-        } else {
-            format!("/opt/homebrew/bin:/usr/local/bin:{}", path_env)
-        };
-
         let mut child = Command::new(python)
             .args(["-c", &script, audio_path_str])
-            .env("PATH", &path_with_brew)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
