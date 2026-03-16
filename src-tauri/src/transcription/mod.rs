@@ -384,9 +384,43 @@ pub fn warmup_transcription() {
         // FluidAudio unavailable/not cached — fall through to Whisper
     }
 
+    // ── Lightning Whisper path ─────────────────────────────────────────
+    // Lightning model IDs are not in the manifest; handle them separately.
+    if let Some(ref sid) = selected_id {
+        if sid.starts_with("lightning-whisper-") {
+            // Parse model name and optional quant from the ID
+            let rest = sid.trim_start_matches("lightning-whisper-");
+            let (model_name, quant) = if rest.ends_with("-4bit") {
+                (&rest[..rest.len() - 5], Some("4bit"))
+            } else if rest.ends_with("-8bit") {
+                (&rest[..rest.len() - 5], Some("8bit"))
+            } else {
+                (rest, None)
+            };
+
+            if lightning_whisper::is_model_downloaded(model_name, quant) {
+                let service = TranscriptionService::new_lightning_whisper(model_name, quant);
+                let mut guard = get_service().lock();
+                *guard = Some(service);
+                tracing::info!("Lightning Whisper model '{}' warmed up on startup", model_name);
+                return;
+            } else {
+                tracing::warn!(
+                    "Lightning Whisper model '{}' not downloaded, falling back to Whisper",
+                    model_name
+                );
+                // Fall through to Whisper fallback
+            }
+        }
+    }
+
     // ── Whisper/Parakeet path ──────────────────────────────────────────
-    if selected_id.is_some() && selected_model_type != Some("fluidaudio_coreml") {
-        // A specific non-FluidAudio model is selected — try to init it
+    let is_non_fluid_manifest_model = selected_id.is_some()
+        && selected_model_type != Some("fluidaudio_coreml")
+        && selected_id.as_deref().map(|id| !id.starts_with("lightning-whisper-")).unwrap_or(false);
+
+    if is_non_fluid_manifest_model {
+        // A specific non-FluidAudio, non-Lightning model is selected — try to init it
         let model_dir = get_model_directory();
         if !download::check_model_downloaded(None) {
             tracing::info!("Selected model not downloaded yet, skipping warmup");
