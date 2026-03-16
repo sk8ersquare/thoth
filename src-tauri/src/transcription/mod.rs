@@ -473,9 +473,15 @@ fn try_warmup_fluidaudio() -> bool {
     false
 }
 
-/// Fall back to the best available downloaded Whisper model during warmup.
+/// Fall back to the best available downloaded model during warmup.
+/// Tries: FluidAudio (Neural Engine) → Whisper (Metal GPU) → Parakeet (CPU)
 fn warmup_whisper_fallback(manifest: &manifest::ModelManifest) {
-    // Try the largest/best downloaded Whisper model (manifest order = quality order)
+    // 1. Try FluidAudio first (fastest on Apple Silicon)
+    if try_warmup_fluidaudio() {
+        return;
+    }
+
+    // 2. Try the largest/best downloaded Whisper model (manifest order = quality order)
     if let Some(whisper_model) = manifest
         .models
         .iter()
@@ -485,14 +491,33 @@ fn warmup_whisper_fallback(manifest: &manifest::ModelManifest) {
         match init_transcription(whisper_dir.to_string_lossy().to_string()) {
             Ok(()) => {
                 tracing::info!("Fell back to Whisper model '{}'", whisper_model.id);
+                return;
             }
             Err(e) => {
-                tracing::warn!("Whisper fallback also failed: {}", e);
+                tracing::warn!("Whisper fallback failed: {}", e);
             }
         }
-    } else {
-        tracing::info!("No downloaded Whisper model available for fallback");
     }
+
+    // 3. Try any downloaded Parakeet model
+    if let Some(parakeet_model) = manifest
+        .models
+        .iter()
+        .find(|m| m.model_type == "nemo_transducer" && manifest::is_model_downloaded(m))
+    {
+        let model_dir = manifest::get_model_directory(&parakeet_model.id);
+        match init_transcription(model_dir.to_string_lossy().to_string()) {
+            Ok(()) => {
+                tracing::info!("Fell back to Parakeet model '{}'", parakeet_model.id);
+                return;
+            }
+            Err(e) => {
+                tracing::warn!("Parakeet fallback also failed: {}", e);
+            }
+        }
+    }
+
+    tracing::info!("No downloaded transcription model available for fallback");
 }
 
 /// Check if transcription service is ready

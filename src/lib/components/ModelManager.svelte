@@ -147,6 +147,7 @@
     loadCustomModels();
     setupEventListeners();
     setupLightningEventListeners();
+    restoreLightningSelection();
 
     return () => {
       if (unlistenProgress) unlistenProgress();
@@ -304,6 +305,28 @@
     } catch {
       lightningAvailable = false;
     }
+  }
+
+  /** Restore lightning chip in Downloaded strip if a lightning model is the active model */
+  async function restoreLightningSelection() {
+    try {
+      const selectedId = await invoke<string | null>('get_selected_model_id');
+      if (selectedId && selectedId.startsWith('lightning-whisper-')) {
+        lightningSelectedModel = selectedId;
+        // Also restore the dropdown selections to match
+        const rest = selectedId.replace('lightning-whisper-', '');
+        if (rest.endsWith('-4bit')) {
+          lightningModel = rest.slice(0, -5);
+          lightningQuant = '4bit';
+        } else if (rest.endsWith('-8bit')) {
+          lightningModel = rest.slice(0, -5);
+          lightningQuant = '8bit';
+        } else {
+          lightningModel = rest;
+          lightningQuant = 'None';
+        }
+      }
+    } catch { /* ignore */ }
   }
 
   async function loadCustomModels() {
