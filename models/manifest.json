@@ -1,5 +1,5 @@
 {
-  "version": 10,
+  "version": 11,
   "updated": "2026-03-16T00:00:00Z",
   "models": [
     {
@@ -96,6 +96,22 @@
       "languages": ["en"],
       "model_type": "fluidaudio_coreml",
       "recommended": true,
+      "min_app_version": null
+    },
+    {
+      "id": "mlx-distil-large-v3",
+      "name": "Distil-Whisper Large V3 (MLX)",
+      "description": "Distilled Large V3 — 6x faster than large-v3 with minimal accuracy loss. ~750MB. English-focused. Best MLX option for speed. Requires: pip3 install mlx-whisper",
+      "version": "1.0.0",
+      "download_url": "hf://mlx-community/distil-whisper-large-v3",
+      "download_size": 750000000,
+      "extracted_size": 750000000,
+      "sha256": null,
+      "required_files": [],
+      "archive_directory": null,
+      "languages": ["en"],
+      "model_type": "mlx_whisper",
+      "recommended": false,
       "min_app_version": null
     },
     {

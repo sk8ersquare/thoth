@@ -60,12 +60,12 @@ pub fn is_available() -> bool {
 /// Map manifest model_id to the HuggingFace repo path for mlx-community
 pub fn hf_repo_for_model(model_id: &str) -> &str {
     match model_id {
+        "mlx-distil-large-v3"   => "mlx-community/distil-whisper-large-v3",
+        "mlx-distil-medium-en"  => "mlx-community/distil-whisper-medium.en",
         "mlx-large-v3-turbo"    => "mlx-community/whisper-large-v3-turbo",
         "mlx-large-v3-turbo-q4" => "mlx-community/whisper-large-v3-turbo-q4",
         "mlx-large-v3"          => "mlx-community/whisper-large-v3-mlx",
         "mlx-small"             => "mlx-community/whisper-small-mlx",
-        "mlx-base"              => "mlx-community/whisper-base-mlx",
-        "mlx-tiny"              => "mlx-community/whisper-tiny-mlx",
         // Fallback: treat model_id as the HF repo directly
         other                   => other,
     }
@@ -116,8 +116,10 @@ impl MlxWhisperService {
         // Load the WAV ourselves using Python's built-in `wave` module and pass
         // a numpy array directly to mlx_whisper — no ffmpeg dependency at all.
         // Thoth already records clean 16kHz mono PCM WAV files so no resampling needed.
+        // Capture stdout around transcribe() to suppress mlx_whisper's own prints
+        // (e.g. "Detected language: English"), then emit only the transcription text.
         let script = format!(
-            "import wave, numpy as np, mlx_whisper, sys; \
+            "import wave, numpy as np, mlx_whisper, sys, io; \
              path = sys.argv[1]; \
              f = wave.open(path, 'rb'); \
              ch = f.getnchannels(); \
@@ -125,7 +127,9 @@ impl MlxWhisperService {
              f.close(); \
              audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0; \
              audio = audio.reshape(-1, ch).mean(axis=1) if ch > 1 else audio; \
+             _old_stdout = sys.stdout; sys.stdout = io.StringIO(); \
              result = mlx_whisper.transcribe(audio, path_or_hf_repo='{}', verbose=False); \
+             sys.stdout = _old_stdout; \
              print(result.get('text', '').strip() if isinstance(result, dict) else str(result).strip())",
             hf_repo
         );
