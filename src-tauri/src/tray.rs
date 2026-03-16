@@ -317,6 +317,7 @@ fn backend_label(model_type: &str) -> &'static str {
         "whisper_ggml" => "Whisper",
         "nemo_transducer" => "Parakeet",
         "fluidaudio_coreml" => "Neural Engine",
+        "mlx_whisper" => "Whisper MLX",
         _ => "Unknown",
     }
 }
@@ -833,6 +834,8 @@ fn handle_select_model(app: &AppHandle, model_id: String) {
         if let Some(model) = manifest.models.iter().find(|m| m.id == model_id) {
             let init_result = if model.model_type == "fluidaudio_coreml" {
                 transcription::init_fluidaudio_transcription()
+            } else if model.model_type == "mlx_whisper" {
+                transcription::init_mlx_whisper_transcription(model_id.clone())
             } else {
                 let model_dir = transcription::manifest::get_model_directory(&model_id);
                 transcription::init_transcription(model_dir.to_string_lossy().to_string())

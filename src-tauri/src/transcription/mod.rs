@@ -84,6 +84,8 @@ impl TranscriptionService {
     /// Create a new transcription service with the Whisper MLX backend
     pub fn new_mlx_whisper(model_id: &str) -> Self {
         let service = mlx_whisper::MlxWhisperService::new(model_id);
+        // Kick off background model pre-fetch so first transcription doesn't hang
+        service.ensure_cached();
         Self::MlxWhisper(service)
     }
 

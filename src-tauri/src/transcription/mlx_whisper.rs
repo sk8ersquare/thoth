@@ -83,6 +83,28 @@ impl MlxWhisperService {
         Self { hf_repo }
     }
 
+    /// Pre-download the model weights from HuggingFace if not already cached.
+    /// Called during init so the first transcription doesn't hang unexpectedly.
+    pub fn ensure_cached(&self) {
+        let python = find_python();
+        let hf_repo = self.hf_repo.clone();
+        // Run in background thread — don't block init
+        std::thread::spawn(move || {
+            tracing::info!("MLX Whisper: pre-fetching model weights for {} (background)", hf_repo);
+            let script = format!(
+                "from huggingface_hub import snapshot_download; \
+                 snapshot_download(repo_id='{}', ignore_patterns=['*.md'])",
+                hf_repo
+            );
+            let _ = Command::new(python)
+                .args(["-c", &script])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            tracing::info!("MLX Whisper: model weights ready for {}", hf_repo);
+        });
+    }
+
     pub fn transcribe(&self, audio_path: &Path) -> Result<String> {
         let audio_path_str = audio_path
             .to_str()
