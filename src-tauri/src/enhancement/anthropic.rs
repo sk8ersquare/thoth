@@ -97,7 +97,11 @@ impl AnthropicClient {
         if !response.status().is_success() {
             let status = response.status().as_u16();
             let body = response.text().await.unwrap_or_default();
-            return Err(anyhow!("Anthropic API error ({}): {}", status, body));
+            tracing::error!("Anthropic API error ({}): {}", status, body);
+            return Err(anyhow!(
+                "Anthropic API request failed with status {}",
+                status
+            ));
         }
 
         let resp: MessagesResponse = response

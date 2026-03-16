@@ -687,7 +687,7 @@ fn get_transcription_model_name() -> Option<String> {
     model_id.or_else(transcription::get_transcription_backend)
 }
 
-/// Get audio file duration (placeholder - returns None for now)
+/// Calculate audio duration from a WAV file's header fields.
 fn get_audio_duration(audio_path: &str) -> Option<f64> {
     // Try to read WAV file header to get duration
     let path = PathBuf::from(audio_path);

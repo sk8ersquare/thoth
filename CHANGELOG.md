@@ -4,6 +4,59 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2026.3.1] - 2026-03-16
+
+### Added
+
+- **Anthropic cloud backend**: Direct integration with the Anthropic Messages API for AI text enhancement, supporting Claude Haiku, Sonnet, and Opus models
+- **Anthropic API key detection**: Automatically detects `ANTHROPIC_API_KEY` from environment variables
+- **Open Anthropic Console**: One-click button to open the Anthropic console for API key management
+
+### Changed
+
+- Enhancement backend selector now supports three backends: Ollama, OpenAI-compatible, and Anthropic
+- Model listing for Anthropic backend returns a curated set of available Claude models
+
+## [2026.3.0] - 2026-03-14
+
+### Added
+
+- **One-click Lightning Whisper MLX install**: Install button opens a Terminal window with pip install progress
+- **Collapsible model sections**: Model categories in the model manager are collapsible for a cleaner UI
+- **Model switcher**: Quick model selection from the model manager
+- **Processing spinner**: Visual spinner indicator during AI enhancement in the recording overlay
+
+### Fixed
+
+- OpenAI-compatible backend timeout increased to 120s to accommodate slower local models (e.g. oMLX)
+
+## [2026.2.9] - 2026-03-12
+
+### Added
+
+- **Lightning Whisper MLX backend**: Fast Whisper transcription on Apple Silicon via the MLX framework, running as a Python subprocess
+- **Custom model support**: Add user-supplied whisper or parakeet models from local file paths
+- **Redesigned model UI**: Model manager with categorised sections, download progress, and disk usage display
+
+### Changed
+
+- Transcription module extended with `LightningWhisper` backend variant
+- Configuration extended with `lightning_whisper_model`, `lightning_whisper_quant`, and `custom_models` fields
+
+## [2026.2.8] - 2026-03-10
+
+### Added
+
+- **OpenAI-compatible backend**: AI enhancement via any OpenAI-compatible API server (oMLX, LM Studio, LocalAI, etc.) using `/v1/chat/completions`
+- **Configurable API key**: Optional Bearer token authentication for OpenAI-compatible backends
+- **Retry with exponential backoff**: OpenAI-compatible client retries on transient failures (connection errors, timeouts, 5xx)
+- **AI enhancement spinner**: Spinning wheel indicator in the recording overlay during AI enhancement processing
+
+### Changed
+
+- Enhancement settings UI split into Cloud AI and Local AI tabs
+- Backend configuration persisted independently per backend type
+
 ## [2026.2.7] - 2026-02-22
 
 ### Added
