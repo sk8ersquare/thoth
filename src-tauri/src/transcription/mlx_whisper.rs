@@ -86,8 +86,14 @@ impl MlxWhisperService {
     /// Pre-download the model weights from HuggingFace if not already cached.
     /// Called during init so the first transcription doesn't hang unexpectedly.
     pub fn ensure_cached(&self) {
-        let python = find_python();
+        let python = find_python().to_string();
         let hf_repo = self.hf_repo.clone();
+        let path_env = std::env::var("PATH").unwrap_or_default();
+        let path_with_brew = if path_env.contains("/opt/homebrew/bin") {
+            path_env
+        } else {
+            format!("/opt/homebrew/bin:/usr/local/bin:{}", path_env)
+        };
         // Run in background thread — don't block init
         std::thread::spawn(move || {
             tracing::info!("MLX Whisper: pre-fetching model weights for {} (background)", hf_repo);
@@ -96,8 +102,9 @@ impl MlxWhisperService {
                  snapshot_download(repo_id='{}', ignore_patterns=['*.md'])",
                 hf_repo
             );
-            let _ = Command::new(python)
+            let _ = Command::new(&python)
                 .args(["-c", &script])
+                .env("PATH", &path_with_brew)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status();
@@ -126,8 +133,19 @@ impl MlxWhisperService {
             audio_path_str, hf_repo
         );
 
+        // mlx_whisper calls ffmpeg internally to decode audio.
+        // Tauri apps don't inherit the user's shell PATH, so Homebrew's ffmpeg
+        // at /opt/homebrew/bin is invisible. Inject it explicitly.
+        let path_env = std::env::var("PATH").unwrap_or_default();
+        let path_with_brew = if path_env.contains("/opt/homebrew/bin") {
+            path_env
+        } else {
+            format!("/opt/homebrew/bin:/usr/local/bin:{}", path_env)
+        };
+
         let mut child = Command::new(python)
             .args(["-c", &script, audio_path_str])
+            .env("PATH", &path_with_brew)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
