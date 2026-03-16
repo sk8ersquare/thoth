@@ -67,16 +67,18 @@
         <p class="credit-line">
           Contributions from
           <button class="link-inline" onclick={() => openExternal('https://github.com/nephalemsec')}>nephalemsec</button>
+          ·
+          <button class="link-inline" onclick={() => openExternal('https://github.com/sk8ersquare')}>sk8ersquare</button>
         </p>
       </div>
 
       <!-- Links -->
       <div class="links">
-        <button class="link-item" onclick={() => openExternal('https://github.com/poodle64/thoth')}>
+        <button class="link-item" onclick={() => openExternal('https://github.com/sk8ersquare/thoth')}>
           GitHub
         </button>
         <span class="link-separator">·</span>
-        <button class="link-item" onclick={() => openExternal('https://github.com/poodle64/thoth/blob/main/LICENCE')}>
+        <button class="link-item" onclick={() => openExternal('https://github.com/sk8ersquare/thoth/blob/main/LICENCE')}>
           MIT Licence
         </button>
       </div>
