@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Thoth",
-  "version": "2026.2.7",
   "identifier": "com.poodle64.thoth",
   "build": {
     "beforeDevCommand": "npm run dev",
