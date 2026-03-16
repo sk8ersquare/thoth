@@ -60,6 +60,7 @@
   let lightningInstallError = $state<string | null>(null);
   let lightningModel = $state('large-v3');
   let lightningQuant = $state<string>('None');
+  let lightningSelectedModel = $state<string | null>(null);
   const lightningModels = [
     'tiny', 'small', 'distil-small.en', 'base', 'medium', 'distil-medium.en',
     'large', 'large-v2', 'distil-large-v2', 'large-v3', 'distil-large-v3',
@@ -240,6 +241,7 @@
   async function selectModel(model: ModelInfo) {
     error = null;
     initialisingModelId = model.id;
+    lightningSelectedModel = null;
     try {
       await invoke('set_selected_model_id', { modelId: model.id });
       if (model.model_type === 'fluidaudio_coreml') {
@@ -268,6 +270,7 @@
         quant,
       });
       await invoke('set_selected_model_id', { modelId: `lightning-whisper-${lightningModel}` });
+      lightningSelectedModel = `lightning-whisper-${lightningModel}${lightningQuant !== 'None' ? `-${lightningQuant.toLowerCase()}` : ''}`;
       await loadModels(false);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -468,7 +471,7 @@
   {/if}
 
   <!-- Downloaded summary section -->
-  {#if downloadedModels().length > 0}
+  {#if downloadedModels().length > 0 || lightningSelectedModel}
     <div class="section-header">
       <span class="section-title">Downloaded</span>
     </div>
@@ -495,6 +498,16 @@
           {/if}
         </button>
       {/each}
+      {#if lightningSelectedModel}
+        <button
+          class="downloaded-chip active"
+          title="Active model (Lightning Whisper MLX)"
+        >
+          <span class="cat-icon cat-icon-sm" style:background="#9b59b6">{'\u26A1'}</span>
+          <span class="chip-name">{lightningSelectedModel}</span>
+          <span class="badge badge-active">Active</span>
+        </button>
+      {/if}
     </div>
   {/if}
 
@@ -637,7 +650,7 @@
           <div class="model-title-row">
             <span class="model-name">Lightning Whisper MLX</span>
           </div>
-          <p class="model-description">Python-based Whisper transcription optimised for Apple Silicon via MLX framework.</p>
+          <p class="model-description">Python-based Whisper transcription optimised for Apple Silicon via MLX framework. Model weights are automatically downloaded from HuggingFace on first use (~1-3GB depending on model size).</p>
 
           {#if !lightningAvailable}
             <div class="install-section">
@@ -691,7 +704,7 @@
         {#if initialisingModelId === '__lightning_whisper__'}
           <div class="progress-section">
             <div class="progress-bar"><div class="progress-fill extracting"></div></div>
-            <span class="progress-text">Loading Lightning Whisper MLX model...</span>
+            <span class="progress-text">Loading model... (first use downloads from HuggingFace, may take a minute)</span>
           </div>
         {:else}
           <button
