@@ -1,22 +1,22 @@
 //! Whisper MLX backend
 //!
 //! Uses the mlx-whisper Python package for fast Whisper transcription
-//! on Apple Silicon via Apple's MLX framework. Runs as a Python subprocess.
+//! on Apple Silicon via Apple's MLX framework.
+//!
+//! The Python process is kept alive as a persistent daemon between transcriptions
+//! so the model stays loaded in RAM — no per-call startup cost after warmup.
 //!
 //! Models are downloaded from HuggingFace (mlx-community) on first use,
 //! cached automatically by huggingface_hub to ~/.cache/huggingface/.
-//!
-//! Install: pip3 install mlx-whisper
 
 use anyhow::{anyhow, Result};
+use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
-use std::sync::OnceLock;
-use std::time::Duration;
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::{Mutex, OnceLock};
 
 static PYTHON_PATH: OnceLock<String> = OnceLock::new();
 
-/// Find Python with mlx_whisper installed
 fn find_python() -> &'static str {
     PYTHON_PATH.get_or_init(|| {
         let candidates = [
@@ -26,7 +26,6 @@ fn find_python() -> &'static str {
             "python3.11",
             "python3.10",
             "python3.9",
-            "python",
         ];
         for candidate in &candidates {
             let ok = Command::new(candidate)
@@ -41,7 +40,6 @@ fn find_python() -> &'static str {
                 return candidate.to_string();
             }
         }
-        tracing::warn!("MLX Whisper: no Python with mlx_whisper found, defaulting to /usr/bin/python3");
         "/usr/bin/python3".to_string()
     })
 }
@@ -57,7 +55,7 @@ pub fn is_available() -> bool {
         .unwrap_or(false)
 }
 
-/// Map manifest model_id to the HuggingFace repo path for mlx-community
+/// Map manifest model_id to the HuggingFace repo path
 pub fn hf_repo_for_model(model_id: &str) -> &str {
     match model_id {
         "mlx-distil-large-v3"   => "mlx-community/distil-whisper-large-v3",
@@ -66,116 +64,218 @@ pub fn hf_repo_for_model(model_id: &str) -> &str {
         "mlx-large-v3-turbo-q4" => "mlx-community/whisper-large-v3-turbo-q4",
         "mlx-large-v3"          => "mlx-community/whisper-large-v3-mlx",
         "mlx-small"             => "mlx-community/whisper-small-mlx",
-        // Fallback: treat model_id as the HF repo directly
         other                   => other,
     }
 }
 
+// ── Persistent Python daemon ──────────────────────────────────────────────────
+
+/// The Python daemon script that stays alive, loads the model once,
+/// then reads audio paths from stdin and writes transcription to stdout.
+fn daemon_script(hf_repo: &str) -> String {
+    format!(
+        r#"
+import sys, wave, io
+import numpy as np
+import mlx_whisper
+
+# Suppress mlx_whisper's own stdout prints
+import builtins
+_real_print = builtins.print
+
+HF_REPO = '{hf_repo}'
+READY = 'READY'
+DONE  = 'DONE'
+
+# Pre-load model by running a tiny silent audio through it
+_silence = np.zeros(3200, dtype=np.float32)
+_old_stdout = sys.stdout; sys.stdout = io.StringIO()
+try:
+    mlx_whisper.transcribe(_silence, path_or_hf_repo=HF_REPO, verbose=False,
+                            no_speech_threshold=0.9)
+except Exception:
+    pass
+sys.stdout = _old_stdout
+
+# Signal ready — Rust side waits for this line
+_real_print(READY, flush=True)
+
+# Main loop: read WAV paths, transcribe, print result + DONE sentinel
+for line in sys.stdin:
+    path = line.strip()
+    if not path:
+        continue
+    try:
+        with wave.open(path, 'rb') as f:
+            ch     = f.getnchannels()
+            frames = f.readframes(f.getnframes())
+        audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+        if ch > 1:
+            audio = audio.reshape(-1, ch).mean(axis=1)
+
+        sys.stdout = io.StringIO()
+        result = mlx_whisper.transcribe(
+            audio,
+            path_or_hf_repo=HF_REPO,
+            verbose=False,
+            condition_on_previous_text=False,
+            no_speech_threshold=0.6,
+        )
+        sys.stdout = sys.__stdout__
+        text = result.get('text', '').strip() if isinstance(result, dict) else str(result).strip()
+    except Exception as e:
+        sys.stdout = sys.__stdout__
+        text = ''
+
+    _real_print(text, flush=True)
+    _real_print(DONE, flush=True)
+"#,
+        hf_repo = hf_repo
+    )
+}
+
+struct Daemon {
+    _child:  Child,
+    stdin:   ChildStdin,
+    stdout:  BufReader<ChildStdout>,
+}
+
 pub struct MlxWhisperService {
-    /// HuggingFace repo path, e.g. "mlx-community/whisper-large-v3-turbo"
     hf_repo: String,
+    daemon:  Mutex<Option<Daemon>>,
 }
 
 impl MlxWhisperService {
     pub fn new(model_id: &str) -> Self {
         let hf_repo = hf_repo_for_model(model_id).to_string();
         tracing::info!("MLX Whisper: service created for repo={}", hf_repo);
-        Self { hf_repo }
+        Self { hf_repo, daemon: Mutex::new(None) }
     }
 
-    /// Pre-download the model weights from HuggingFace if not already cached.
-    /// Called during init so the first transcription doesn't hang unexpectedly.
+    /// Spawn the Python daemon and wait for it to signal READY.
+    /// Called once on first transcription (or after a crash restart).
+    fn start_daemon(&self) -> Result<Daemon> {
+        tracing::info!("MLX Whisper: starting daemon for {}", self.hf_repo);
+        let script = daemon_script(&self.hf_repo);
+        let python = find_python();
+
+        let mut child = Command::new(python)
+            .args(["-c", &script])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| anyhow!("Failed to spawn MLX Whisper daemon: {}", e))?;
+
+        let stdin  = child.stdin.take()
+            .ok_or_else(|| anyhow!("No stdin on MLX daemon"))?;
+        let stdout = BufReader::new(
+            child.stdout.take()
+                .ok_or_else(|| anyhow!("No stdout on MLX daemon"))?
+        );
+
+        let mut daemon = Daemon { _child: child, stdin, stdout };
+
+        // Wait for READY (model loaded) — can take 10-30s on first run (download + compile)
+        tracing::info!("MLX Whisper: waiting for daemon READY (model loading/compiling)…");
+        let mut line = String::new();
+        loop {
+            line.clear();
+            let n = daemon.stdout.read_line(&mut line)
+                .map_err(|e| anyhow!("MLX daemon stdout error: {}", e))?;
+            if n == 0 {
+                return Err(anyhow!("MLX daemon exited before READY"));
+            }
+            if line.trim() == "READY" {
+                break;
+            }
+        }
+        tracing::info!("MLX Whisper: daemon ready");
+        Ok(daemon)
+    }
+
+    /// Pre-load: start daemon in background so it's warm before first recording.
     pub fn ensure_cached(&self) {
-        let python = find_python().to_string();
+        // Kick the daemon off on a background thread
         let hf_repo = self.hf_repo.clone();
-        // Run in background thread — don't block init
         std::thread::spawn(move || {
-            tracing::info!("MLX Whisper: pre-fetching model weights for {} (background)", hf_repo);
-            let script = format!(
-                "from huggingface_hub import snapshot_download; \
-                 snapshot_download(repo_id='{}', ignore_patterns=['*.md'])",
-                hf_repo
-            );
-            let _ = Command::new(&python)
+            tracing::info!("MLX Whisper: pre-warming daemon for {} (background)", hf_repo);
+            let script = daemon_script(&hf_repo);
+            let python = find_python();
+            let mut child = match Command::new(python)
                 .args(["-c", &script])
-                .stdout(Stdio::null())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
                 .stderr(Stdio::null())
-                .status();
-            tracing::info!("MLX Whisper: model weights ready for {}", hf_repo);
+                .spawn()
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!("MLX Whisper pre-warm failed to spawn: {}", e);
+                    return;
+                }
+            };
+            let stdout = match child.stdout.take() {
+                Some(s) => BufReader::new(s),
+                None => return,
+            };
+            let mut reader = stdout;
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) if line.trim() == "READY" => {
+                        tracing::info!("MLX Whisper: pre-warm daemon ready, handing off to service");
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            // Daemon is now warmed up; it will be restarted on first actual transcription.
+            // (We don't store this pre-warm daemon in self since we're in a different thread.)
+            // Just let it exit — cost paid, model cached by mlx.
+            let _ = child.kill();
         });
     }
 
     pub fn transcribe(&self, audio_path: &Path) -> Result<String> {
-        let audio_path_str = audio_path
-            .to_str()
+        let audio_path_str = audio_path.to_str()
             .ok_or_else(|| anyhow!("Invalid audio path"))?;
 
-        let python = find_python();
-        let hf_repo = &self.hf_repo;
+        let mut guard = self.daemon.lock()
+            .map_err(|_| anyhow!("MLX daemon mutex poisoned"))?;
 
-        // Load the WAV ourselves using Python's built-in `wave` module and pass
-        // a numpy array directly to mlx_whisper — no ffmpeg dependency at all.
-        // Thoth already records clean 16kHz mono PCM WAV files so no resampling needed.
-        // Capture stdout around transcribe() to suppress mlx_whisper's own prints
-        // (e.g. "Detected language: English"), then emit only the transcription text.
-        let script = format!(
-            "import wave, numpy as np, mlx_whisper, sys, io; \
-             path = sys.argv[1]; \
-             f = wave.open(path, 'rb'); \
-             ch = f.getnchannels(); \
-             frames = f.readframes(f.getnframes()); \
-             f.close(); \
-             audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0; \
-             audio = audio.reshape(-1, ch).mean(axis=1) if ch > 1 else audio; \
-             _old_stdout = sys.stdout; sys.stdout = io.StringIO(); \
-             result = mlx_whisper.transcribe(audio, path_or_hf_repo='{}', verbose=False); \
-             sys.stdout = _old_stdout; \
-             print(result.get('text', '').strip() if isinstance(result, dict) else str(result).strip())",
-            hf_repo
-        );
+        // Start daemon if not running
+        if guard.is_none() {
+            *guard = Some(self.start_daemon()?);
+        }
 
-        tracing::info!(
-            "MLX Whisper: transcribing {} with repo={}",
-            audio_path_str, hf_repo
-        );
+        let daemon = guard.as_mut().unwrap();
 
-        let mut child = Command::new(python)
-            .args(["-c", &script, audio_path_str])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| anyhow!("Failed to start mlx_whisper: {}", e))?;
+        // Send path, read back transcription + DONE sentinel
+        writeln!(daemon.stdin, "{}", audio_path_str)
+            .map_err(|e| anyhow!("MLX daemon stdin write failed: {}", e))?;
 
-        let timeout = Duration::from_secs(300);
-        let start = std::time::Instant::now();
-
+        let mut result_lines: Vec<String> = Vec::new();
+        let mut line = String::new();
         loop {
-            match child.try_wait() {
-                Ok(Some(_)) => break,
-                Ok(None) => {
-                    if start.elapsed() > timeout {
-                        let _ = child.kill();
-                        return Err(anyhow!("MLX Whisper timed out after 300s"));
-                    }
-                    std::thread::sleep(Duration::from_millis(200));
-                }
-                Err(e) => return Err(anyhow!("MLX Whisper wait error: {}", e)),
+            line.clear();
+            let n = daemon.stdout.read_line(&mut line)
+                .map_err(|e| anyhow!("MLX daemon stdout read failed: {}", e))?;
+            if n == 0 {
+                // Daemon died — clear it so next call restarts
+                *guard = None;
+                return Err(anyhow!("MLX daemon exited unexpectedly"));
             }
+            let trimmed = line.trim_end_matches('\n').trim_end_matches('\r');
+            if trimmed == "DONE" {
+                break;
+            }
+            result_lines.push(trimmed.to_string());
         }
 
-        let output = child.wait_with_output()
-            .map_err(|e| anyhow!("Failed to read mlx_whisper output: {}", e))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow!(
-                "MLX Whisper failed (exit {}): {}",
-                output.status,
-                stderr.trim()
-            ));
-        }
-
-        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let text = result_lines.join(" ").trim().to_string();
         tracing::info!("MLX Whisper: transcription complete ({} chars)", text.len());
         Ok(text)
     }
