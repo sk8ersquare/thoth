@@ -299,7 +299,8 @@ else:
 
 total = len(files)
 for i, (filename, local_dir) in enumerate(files):
-    print(json.dumps({{"status": "downloading", "percent": int((i/total)*100), "message": "Downloading {} ({}/{})...".format(filename.split("/")[-1], i+1, total)}}), flush=True)
+    msg = "Downloading %s (%d/%d)..." % (filename.split("/")[-1], i+1, total)
+    print(json.dumps({{"status": "downloading", "percent": int((i/total)*100), "message": msg}}), flush=True)
     hf_hub_download(repo_id=repo_id, filename=filename, local_dir=local_dir)
 
 print(json.dumps({{"status": "complete", "percent": 100, "message": "Download complete"}}), flush=True)
