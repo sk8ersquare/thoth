@@ -64,7 +64,7 @@
       "requireLiteralLeadingDot": false
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQwQzg4QjM4NEI4NTA2QkQKUldTOUJvVkxPSXZJMEFSQ28zSXpNQW5zWm1GTGwwaU0xWFI5NkNxSXNMWm8xbVZuR3RQaHp0NEcK",
+      "pubkey": "dU50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQwQzg4QjM4NEI4NTA2QkQKUldTOUJvVkxPSXZJMEFSQ28zSXpNQW5zWm1GTGwwaU0xWFI5NkNxSXNMWm8xbVZuR3RQaHp0NEcK",
       "endpoints": [
         "https://github.com/sk8ersquare/thoth/releases/latest/download/latest.json"
       ]
