@@ -145,6 +145,22 @@ fn default_anthropic_url() -> String {
     "https://api.anthropic.com".to_string()
 }
 
+/// A saved local AI server entry
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LocalServer {
+    /// Unique identifier (UUID-like, generated on creation)
+    pub id: String,
+    /// Human-readable label e.g. "Home oMLX", "Work LM Studio"
+    pub name: String,
+    /// Base URL e.g. "http://localhost:8000"
+    pub url: String,
+    /// Backend type: "ollama" | "openai_compat"
+    pub backend: String,
+    /// Optional API key for this server
+    #[serde(default)]
+    pub api_key: Option<String>,
+}
+
 /// AI enhancement configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -174,6 +190,12 @@ pub struct EnhancementConfig {
     /// Sends chat_template_kwargs: {"enable_thinking": false} in requests
     #[serde(default)]
     pub disable_thinking: bool,
+    /// Saved local AI server list (name, url, backend, optional api_key)
+    #[serde(default)]
+    pub local_servers: Vec<LocalServer>,
+    /// ID of the currently active local server (None = use ollama_url legacy field)
+    #[serde(default)]
+    pub active_local_server_id: Option<String>,
 }
 
 impl Default for EnhancementConfig {
@@ -189,6 +211,8 @@ impl Default for EnhancementConfig {
             anthropic_model: default_anthropic_model(),
             anthropic_url: default_anthropic_url(),
             disable_thinking: false,
+            local_servers: Vec::new(),
+            active_local_server_id: None,
         }
     }
 }
@@ -786,6 +810,8 @@ mod tests {
                 anthropic_model: default_anthropic_model(),
                 anthropic_url: default_anthropic_url(),
                 disable_thinking: false,
+                local_servers: Vec::new(),
+                active_local_server_id: None,
             },
             general: GeneralConfig {
                 launch_at_login: true,
@@ -880,6 +906,8 @@ mod tests {
             anthropic_model: default_anthropic_model(),
             anthropic_url: default_anthropic_url(),
             disable_thinking: false,
+            local_servers: Vec::new(),
+            active_local_server_id: None,
         };
 
         assert!(enhancement.enabled);

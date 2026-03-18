@@ -22,6 +22,9 @@
 
   let ollamaAvailable = $state(false);
   let ollamaModels = $state<string[]>([]);
+  let editingServerId = $state<string | null>(null);
+  let editServerDraft = $state({ name: '', url: '', backend: 'ollama' as 'ollama' | 'openai_compat', apiKey: '' });
+
   let prompts = $state<PromptTemplate[]>([]);
   let isCheckingOllama = $state(false);
   let isLoadingModels = $state(false);
@@ -136,6 +139,74 @@
   }
 
   /** Handle Ollama URL change */
+  // ── Local Server Management ──────────────────────────────────────────────
+
+  function generateServerId(): string {
+    return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  }
+
+  function addServer(): void {
+    const newServer = {
+      id: generateServerId(),
+      name: 'New Server',
+      url: 'http://localhost:11434',
+      backend: 'ollama' as const,
+      apiKey: undefined,
+    };
+    configStore.updateEnhancement('localServers', [...configStore.config.enhancement.localServers, newServer]);
+    editingServerId = newServer.id;
+    editServerDraft = { name: newServer.name, url: newServer.url, backend: newServer.backend, apiKey: '' };
+  }
+
+  function startEditServer(server: { id: string; name: string; url: string; backend: 'ollama' | 'openai_compat'; apiKey?: string }): void {
+    editingServerId = server.id;
+    editServerDraft = { name: server.name, url: server.url, backend: server.backend, apiKey: server.apiKey ?? '' };
+  }
+
+  function saveServerEdit(id: string): void {
+    const updated = configStore.config.enhancement.localServers.map((s) =>
+      s.id === id
+        ? { ...s, name: editServerDraft.name, url: editServerDraft.url, backend: editServerDraft.backend, apiKey: editServerDraft.apiKey || undefined }
+        : s
+    );
+    configStore.updateEnhancement('localServers', updated);
+    editingServerId = null;
+    // If this is the active server, reapply backend
+    if (configStore.config.enhancement.activeLocalServerId === id) {
+      activateServer(updated.find((s) => s.id === id)!);
+    } else {
+      configStore.save();
+    }
+  }
+
+  function removeServer(id: string): void {
+    const remaining = configStore.config.enhancement.localServers.filter((s) => s.id !== id);
+    configStore.updateEnhancement('localServers', remaining);
+    if (configStore.config.enhancement.activeLocalServerId === id) {
+      // Activate first remaining server or fall back to default
+      if (remaining.length > 0) {
+        activateServer(remaining[0]);
+      } else {
+        configStore.updateEnhancement('activeLocalServerId', null);
+        configStore.save();
+      }
+    } else {
+      configStore.save();
+    }
+  }
+
+  async function activateServer(server: { id: string; url: string; backend: 'ollama' | 'openai_compat'; apiKey?: string }): Promise<void> {
+    configStore.updateEnhancement('activeLocalServerId', server.id);
+    configStore.updateEnhancement('ollamaUrl', server.url);
+    configStore.updateEnhancement('backend', server.backend);
+    configStore.updateEnhancement('apiKey', server.apiKey ?? '');
+    await configStore.save();
+    await applyBackend();
+    await checkOllama();
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+
   function handleUrlChange(event: Event): void {
     const input = event.target as HTMLInputElement;
     configStore.updateEnhancement('ollamaUrl', input.value);
@@ -526,59 +597,138 @@
       <!-- Local AI section (Ollama / OpenAI-Compatible) -->
       {#if isLocalBackend()}
         <div class="backend-section local-section">
-          <div class="setting-row card">
-            <div class="setting-info">
-              <span class="setting-label">Backend</span>
-              <span class="setting-description">Choose the AI server type</span>
-            </div>
-            <select
-              class="select-control"
-              value={configStore.config.enhancement.backend}
-              onchange={handleBackendChange}
-            >
-              <option value="ollama">Ollama</option>
-              <option value="openai_compat">OpenAI Compatible</option>
-            </select>
-          </div>
 
-          <div class="setting-row card vertical">
-            <div class="setting-info">
-              <span class="setting-label">Server URL</span>
-              <span class="setting-description">
-                {configStore.config.enhancement.backend === 'openai_compat'
-                  ? 'The base URL of your OpenAI-compatible server'
-                  : 'The URL of your local Ollama server'}
-              </span>
+          <!-- ── Server List ─────────────────────────────────────────────── -->
+          <div class="setting-group-inner">
+            <div class="server-list-header">
+              <span class="setting-label">Local AI Servers</span>
+              <button class="add-server-btn" onclick={addServer}>+ Add Server</button>
             </div>
-            <div class="url-input-row">
-              <input
-                type="url"
-                class="url-input"
-                value={configStore.config.enhancement.ollamaUrl}
-                oninput={handleUrlChange}
-                onblur={handleUrlBlur}
-                placeholder="http://localhost:11434"
-              />
-              <button class="test-btn" onclick={checkOllama} disabled={isCheckingOllama}>
-                {isCheckingOllama ? 'Testing...' : 'Test Connection'}
-              </button>
-            </div>
-            <div
-              class="connection-inline"
-              class:connected={ollamaAvailable}
-              class:disconnected={!ollamaAvailable && !isCheckingOllama}
-            >
-              {#if isCheckingOllama}
-                <span class="status-indicator checking"></span>
-                <span>Checking connection...</span>
-              {:else if ollamaAvailable}
-                <span class="status-indicator connected"></span>
-                <span>Connected to server</span>
-              {:else}
-                <span class="status-indicator disconnected"></span>
-                <span>Not connected. Make sure your AI server is running.</span>
+
+            {#if configStore.config.enhancement.localServers.length === 0}
+              <!-- No saved servers — show the legacy single-server UI -->
+              <div class="setting-row card vertical">
+                <div class="setting-info">
+                  <span class="setting-label">Backend</span>
+                  <span class="setting-description">Choose the AI server type</span>
+                </div>
+                <select
+                  class="select-control"
+                  value={configStore.config.enhancement.backend}
+                  onchange={handleBackendChange}
+                >
+                  <option value="ollama">Ollama</option>
+                  <option value="openai_compat">OpenAI Compatible</option>
+                </select>
+              </div>
+
+              <div class="setting-row card vertical">
+                <div class="setting-info">
+                  <span class="setting-label">Server URL</span>
+                  <span class="setting-description">
+                    {configStore.config.enhancement.backend === 'openai_compat'
+                      ? 'The base URL of your OpenAI-compatible server'
+                      : 'The URL of your local Ollama server'}
+                  </span>
+                </div>
+                <div class="url-input-row">
+                  <input
+                    type="url"
+                    class="url-input"
+                    value={configStore.config.enhancement.ollamaUrl}
+                    oninput={handleUrlChange}
+                    onblur={handleUrlBlur}
+                    placeholder="http://localhost:11434"
+                  />
+                  <button class="test-btn" onclick={checkOllama} disabled={isCheckingOllama}>
+                    {isCheckingOllama ? 'Testing...' : 'Test Connection'}
+                  </button>
+                </div>
+                <div
+                  class="connection-inline"
+                  class:connected={ollamaAvailable}
+                  class:disconnected={!ollamaAvailable && !isCheckingOllama}
+                >
+                  {#if isCheckingOllama}
+                    <span class="status-indicator checking"></span>
+                    <span>Checking connection...</span>
+                  {:else if ollamaAvailable}
+                    <span class="status-indicator connected"></span>
+                    <span>Connected to server</span>
+                  {:else}
+                    <span class="status-indicator disconnected"></span>
+                    <span>Not connected. Make sure your AI server is running.</span>
+                  {/if}
+                </div>
+              </div>
+            {:else}
+              <!-- Saved server list -->
+              {#each configStore.config.enhancement.localServers as server (server.id)}
+                {@const isActive = server.id === configStore.config.enhancement.activeLocalServerId}
+                <div class="server-card" class:active={isActive}>
+                  {#if editingServerId === server.id}
+                    <!-- Edit mode -->
+                    <div class="server-edit-form">
+                      <input class="url-input" placeholder="Name (e.g. Home oMLX)" bind:value={editServerDraft.name} />
+                      <div class="url-input-row">
+                        <select class="select-control" bind:value={editServerDraft.backend}>
+                          <option value="ollama">Ollama</option>
+                          <option value="openai_compat">OpenAI Compatible</option>
+                        </select>
+                        <input class="url-input" placeholder="http://localhost:8000" bind:value={editServerDraft.url} />
+                      </div>
+                      {#if editServerDraft.backend === 'openai_compat'}
+                        <input class="url-input" type="password" placeholder="API key (optional)" bind:value={editServerDraft.apiKey} />
+                      {/if}
+                      <div class="server-edit-actions">
+                        <button class="save-btn" onclick={() => saveServerEdit(server.id)}>Save</button>
+                        <button class="cancel-btn" onclick={() => editingServerId = null}>Cancel</button>
+                      </div>
+                    </div>
+                  {:else}
+                    <!-- Display mode -->
+                    <div class="server-card-main" onclick={() => activateServer(server)}>
+                      <span class="server-active-dot" class:lit={isActive}></span>
+                      <div class="server-card-info">
+                        <span class="server-name">{server.name}</span>
+                        <span class="server-url">{server.backend === 'ollama' ? 'Ollama' : 'OpenAI Compatible'} · {server.url}</span>
+                      </div>
+                      {#if isActive}
+                        <span class="active-badge">Active</span>
+                      {/if}
+                    </div>
+                    <div class="server-card-actions">
+                      <button class="icon-btn" title="Edit" onclick={() => startEditServer(server)}>✎</button>
+                      <button class="icon-btn danger" title="Remove" onclick={() => removeServer(server.id)}>✕</button>
+                    </div>
+                  {/if}
+                </div>
+              {/each}
+
+              <!-- Active server connection status -->
+              {#if configStore.config.enhancement.activeLocalServerId}
+                <div class="url-input-row" style="margin-top: 6px;">
+                  <button class="test-btn" onclick={checkOllama} disabled={isCheckingOllama}>
+                    {isCheckingOllama ? 'Testing...' : 'Test Connection'}
+                  </button>
+                  <div
+                    class="connection-inline"
+                    class:connected={ollamaAvailable}
+                    class:disconnected={!ollamaAvailable && !isCheckingOllama}
+                  >
+                    {#if isCheckingOllama}
+                      <span class="status-indicator checking"></span>
+                    {:else if ollamaAvailable}
+                      <span class="status-indicator connected"></span>
+                      <span>Connected</span>
+                    {:else}
+                      <span class="status-indicator disconnected"></span>
+                      <span>Not connected</span>
+                    {/if}
+                  </div>
+                </div>
               {/if}
-            </div>
+            {/if}
           </div>
 
           {#if configStore.config.enhancement.backend === 'openai_compat'}
@@ -1025,6 +1175,125 @@
   }
 
   /* URL input row */
+  /* ── Server List ─────────────────────────────────────────────────────── */
+  .server-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .add-server-btn {
+    padding: 4px 12px;
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-accent);
+    font-size: var(--text-xs);
+    cursor: pointer;
+  }
+  .add-server-btn:hover { background: var(--color-accent); color: var(--color-bg); }
+
+  .server-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-secondary);
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .server-card.active { border-color: var(--color-accent); }
+  .server-card:hover { border-color: var(--color-text-secondary); }
+
+  .server-card-main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+  }
+
+  .server-active-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-border);
+    flex-shrink: 0;
+  }
+  .server-active-dot.lit { background: var(--color-accent); }
+
+  .server-card-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .server-name { font-size: var(--text-sm); color: var(--color-text-primary); font-weight: 500; }
+  .server-url { font-size: var(--text-xs); color: var(--color-text-secondary); font-family: var(--font-mono); }
+
+  .active-badge {
+    font-size: var(--text-xs);
+    color: var(--color-accent);
+    padding: 2px 8px;
+    border: 1px solid var(--color-accent);
+    border-radius: 99px;
+  }
+
+  .server-card-actions {
+    display: flex;
+    gap: 4px;
+    margin-left: 8px;
+  }
+
+  .icon-btn {
+    padding: 4px 8px;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    font-size: var(--text-xs);
+  }
+  .icon-btn:hover { border-color: var(--color-text-primary); color: var(--color-text-primary); }
+  .icon-btn.danger:hover { border-color: #e06c75; color: #e06c75; }
+
+  .server-edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    padding: 4px 0;
+  }
+
+  .server-edit-actions {
+    display: flex;
+    gap: 6px;
+  }
+
+  .save-btn {
+    padding: 5px 14px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--color-accent);
+    color: var(--color-bg);
+    font-size: var(--text-xs);
+    cursor: pointer;
+  }
+  .cancel-btn {
+    padding: 5px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-text-secondary);
+    font-size: var(--text-xs);
+    cursor: pointer;
+  }
+
+  .setting-group-inner { margin-bottom: 12px; }
+  /* ─────────────────────────────────────────────────────────────────────── */
+
   .url-input-row {
     display: flex;
     gap: 8px;

@@ -69,6 +69,19 @@ export interface EnhancementConfig {
   anthropicUrl: string;
   /** Disable thinking/reasoning mode for OpenAI-compatible backends */
   disableThinking: boolean;
+  /** Saved local AI server list */
+  localServers: LocalServer[];
+  /** ID of the currently active local server */
+  activeLocalServerId: string | null;
+}
+
+/** A saved local AI server */
+export interface LocalServer {
+  id: string;
+  name: string;
+  url: string;
+  backend: 'ollama' | 'openai_compat';
+  apiKey?: string;
 }
 
 /** Recording indicator visual style */
@@ -160,6 +173,9 @@ interface ConfigRaw {
     anthropic_api_key: string | null;
     anthropic_model: string;
     anthropic_url: string;
+    disable_thinking: boolean;
+    local_servers: Array<{ id: string; name: string; url: string; backend: string; api_key?: string }>;
+    active_local_server_id: string | null;
   };
   general: {
     launch_at_login: boolean;
@@ -209,6 +225,14 @@ function parseConfig(raw: ConfigRaw): Config {
       anthropicModel: raw.enhancement.anthropic_model ?? 'claude-haiku-4-5-20251001',
       anthropicUrl: raw.enhancement.anthropic_url ?? 'https://api.anthropic.com',
       disableThinking: raw.enhancement.disable_thinking ?? false,
+      localServers: (raw.enhancement.local_servers ?? []).map((s) => ({
+        id: s.id,
+        name: s.name,
+        url: s.url,
+        backend: s.backend as 'ollama' | 'openai_compat',
+        apiKey: s.api_key ?? undefined,
+      })),
+      activeLocalServerId: raw.enhancement.active_local_server_id ?? null,
     },
     general: {
       launchAtLogin: raw.general.launch_at_login,
@@ -259,6 +283,14 @@ function serialiseConfig(config: Config): ConfigRaw {
       anthropic_model: config.enhancement.anthropicModel,
       anthropic_url: config.enhancement.anthropicUrl,
       disable_thinking: config.enhancement.disableThinking,
+      local_servers: config.enhancement.localServers.map((s) => ({
+        id: s.id,
+        name: s.name,
+        url: s.url,
+        backend: s.backend,
+        api_key: s.apiKey ?? null,
+      })),
+      active_local_server_id: config.enhancement.activeLocalServerId,
     },
     general: {
       launch_at_login: config.general.launchAtLogin,
@@ -309,6 +341,8 @@ function getDefaultConfig(): Config {
       anthropicModel: 'claude-haiku-4-5-20251001',
       anthropicUrl: 'https://api.anthropic.com',
       disableThinking: false,
+      localServers: [],
+      activeLocalServerId: null,
     },
     general: {
       launchAtLogin: false,
