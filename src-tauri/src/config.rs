@@ -785,6 +785,7 @@ mod tests {
                 anthropic_api_key: None,
                 anthropic_model: default_anthropic_model(),
                 anthropic_url: default_anthropic_url(),
+                disable_thinking: false,
             },
             general: GeneralConfig {
                 launch_at_login: true,
@@ -878,6 +879,7 @@ mod tests {
             anthropic_api_key: None,
             anthropic_model: default_anthropic_model(),
             anthropic_url: default_anthropic_url(),
+            disable_thinking: false,
         };
 
         assert!(enhancement.enabled);

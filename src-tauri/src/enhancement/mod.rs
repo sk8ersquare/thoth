@@ -84,7 +84,12 @@ pub fn configure_backend(
 
     match backend_type {
         BackendType::Ollama => {
-            state.ollama = OllamaClient::with_base_url(base_url.to_string());
+            let mut client = OllamaClient::with_base_url(base_url.to_string());
+            // Apply disable_thinking from config if set
+            if let Ok(cfg) = crate::config::get_config() {
+                client.set_disable_thinking(cfg.enhancement.disable_thinking);
+            }
+            state.ollama = client;
         }
         BackendType::OpenAiCompat => {
             let mut client = OpenAiCompatClient::new(

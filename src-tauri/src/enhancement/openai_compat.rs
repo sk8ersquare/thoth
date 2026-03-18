@@ -398,6 +398,7 @@ mod tests {
             }],
             temperature: Some(0.3),
             stream: false,
+            chat_template_kwargs: None,
         };
 
         let json = serde_json::to_string(&request).expect("Failed to serialise");
@@ -416,6 +417,7 @@ mod tests {
             }],
             temperature: None,
             stream: false,
+            chat_template_kwargs: None,
         };
 
         let json = serde_json::to_string(&request).expect("Failed to serialise");

@@ -30,6 +30,9 @@ struct GenerateRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
     stream: bool,
+    /// When set to false, disables thinking/reasoning mode in Ollama
+    #[serde(skip_serializing_if = "Option::is_none")]
+    think: Option<bool>,
 }
 
 /// Response from Ollama generate endpoint (non-streaming)
@@ -82,6 +85,8 @@ pub struct OllamaClient {
     client: reqwest::Client,
     timeout: Duration,
     default_model: Option<String>,
+    /// When true, sends think: false in requests to disable reasoning
+    disable_thinking: bool,
 }
 
 impl Default for OllamaClient {
@@ -120,7 +125,14 @@ impl OllamaClient {
             client,
             timeout,
             default_model,
+            disable_thinking: false,
         }
+    }
+
+    /// Set whether to disable thinking/reasoning mode in requests.
+    /// When enabled, sends `think: false` in Ollama generate requests.
+    pub fn set_disable_thinking(&mut self, disable: bool) {
+        self.disable_thinking = disable;
     }
 
     /// Set the default model for this client
@@ -240,12 +252,14 @@ impl OllamaClient {
             system: system_prompt.map(|s| s.to_string()),
             temperature,
             stream: false,
+            think: if self.disable_thinking { Some(false) } else { None },
         };
 
         tracing::debug!(
-            "Sending generate request to Ollama with model: {} (system prompt: {})",
+            "Sending generate request to Ollama with model: {} (system prompt: {}, think: {})",
             model,
-            system_prompt.is_some()
+            system_prompt.is_some(),
+            !self.disable_thinking
         );
 
         // Retry with exponential backoff
@@ -362,14 +376,16 @@ mod tests {
             system: None,
             temperature: None,
             stream: false,
+            think: None,
         };
 
         let json = serde_json::to_string(&request).expect("Failed to serialise");
         assert!(json.contains("\"model\":\"llama3.2\""));
         assert!(json.contains("\"stream\":false"));
-        // system and temperature should be omitted when None
+        // system, temperature, and think should be omitted when None
         assert!(!json.contains("\"system\""));
         assert!(!json.contains("\"temperature\""));
+        assert!(!json.contains("\"think\""));
     }
 
     #[test]
@@ -380,6 +396,7 @@ mod tests {
             system: Some("You are a helpful assistant.".to_string()),
             temperature: Some(0.3),
             stream: false,
+            think: None,
         };
 
         let json = serde_json::to_string(&request).expect("Failed to serialise");

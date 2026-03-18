@@ -639,11 +639,11 @@
             </p>
           {/if}
 
-          {#if configStore.config.enhancement.backend === 'openai_compat'}
+          {#if configStore.config.enhancement.backend === 'openai_compat' || configStore.config.enhancement.backend === 'ollama'}
             <div class="setting-row card">
               <div class="setting-info">
                 <span class="setting-label">Disable Thinking Mode</span>
-                <span class="setting-description">Disables reasoning / chain-of-thought for faster responses. Sends <code>chat_template_kwargs: &#123;"enable_thinking": false&#125;</code> with each request. Recommended for oMLX thinking models.</span>
+                <span class="setting-description">Disables reasoning / chain-of-thought for faster responses.{#if configStore.config.enhancement.backend === 'openai_compat'} Sends <code>chat_template_kwargs: &#123;"enable_thinking": false&#125;</code>.{:else} Sends <code>think: false</code> to Ollama.{/if} Recommended for thinking models (Qwen3, DeepSeek-R1, etc).</span>
               </div>
               <label class="toggle-switch">
                 <input
