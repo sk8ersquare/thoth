@@ -422,7 +422,7 @@
           Anthropic &middot; {configStore.config.enhancement.anthropicModel.replace('claude-', 'Claude ').replace('-20251001','').replace('-20241022','')}
         {:else if configStore.config.enhancement.backend === 'openai_compat'}
           <span class="pill-dot"></span>
-          OpenAI-compat &middot; {configStore.config.enhancement.ollamaUrl}
+          OpenAI Compatible &middot; {configStore.config.enhancement.ollamaUrl}
         {:else}
           <span class="pill-dot"></span>
           Ollama &middot; {configStore.config.enhancement.model || 'No model selected'}
@@ -523,7 +523,7 @@
         </div>
       {/if}
 
-      <!-- Local AI section (Ollama / OpenAI-compat) -->
+      <!-- Local AI section (Ollama / OpenAI-Compatible) -->
       {#if isLocalBackend()}
         <div class="backend-section local-section">
           <div class="setting-row card">
@@ -637,6 +637,27 @@
                 Connect to your OpenAI-compatible server to see available models.
               {/if}
             </p>
+          {/if}
+
+          {#if configStore.config.enhancement.backend === 'openai_compat'}
+            <div class="setting-row card">
+              <div class="setting-info">
+                <span class="setting-label">Disable Thinking Mode</span>
+                <span class="setting-description">Disables reasoning / chain-of-thought for faster responses. Sends <code>chat_template_kwargs: &#123;"enable_thinking": false&#125;</code> with each request. Recommended for oMLX thinking models.</span>
+              </div>
+              <label class="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={configStore.config.enhancement.disableThinking}
+                  onchange={async (e) => {
+                    configStore.updateEnhancement('disableThinking', (e.target as HTMLInputElement).checked);
+                    await configStore.save();
+                    await applyBackend();
+                  }}
+                />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
           {/if}
         </div>
       {/if}

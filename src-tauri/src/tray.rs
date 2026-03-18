@@ -67,6 +67,8 @@ mod menu_ids {
     pub const AI_ENHANCEMENT_TOGGLE: &str = "ai_enhancement_toggle";
     /// Prefix for transcription model menu items
     pub const MODEL_PREFIX: &str = "model::";
+    /// Prefix for AI enhancement model selection menu items
+    pub const AI_MODEL_PREFIX: &str = "ai_model::";
 }
 
 // =============================================================================
@@ -405,7 +407,7 @@ fn build_ai_submenu(
             if c.enhancement.backend == "anthropic" {
                 (c.enhancement.anthropic_model.clone(), "Cloud: ")
             } else if c.enhancement.backend == "openai_compat" {
-                (c.enhancement.model.clone(), "Local (OMLX): ")
+                (c.enhancement.model.clone(), "OpenAI Compatible: ")
             } else {
                 (c.enhancement.model.clone(), "Local: ")
             }
@@ -417,13 +419,55 @@ fn build_ai_submenu(
     } else {
         format!("{}{}", backend_prefix, model_name)
     };
-    let model_item = MenuItemBuilder::with_id("ai_model_info", &model_label)
-        .enabled(false)
-        .build(app)?;
+
+    // Build model selection submenu based on active backend
+    let config = config::get_config().ok();
+    let backend = config.as_ref().map(|c| c.enhancement.backend.as_str()).unwrap_or("ollama");
+
+    let model_submenu = {
+        let mut msub = SubmenuBuilder::new(app, &model_label);
+
+        if backend == "anthropic" {
+            // Anthropic: fixed model list
+            let models = vec![
+                "claude-haiku-4-5-20251001",
+                "claude-sonnet-4-6",
+                "claude-opus-4-6",
+            ];
+            let active = config.as_ref().map(|c| c.enhancement.anthropic_model.as_str()).unwrap_or("");
+            for m in models {
+                let prefix = if m == active { SELECTED_PREFIX } else { UNSELECTED_PREFIX };
+                let label = format!("{}{}", prefix, m);
+                let menu_id = format!("{}{}", menu_ids::AI_MODEL_PREFIX, m);
+                let item = MenuItemBuilder::with_id(menu_id, &label)
+                    .enabled(enhancement_enabled)
+                    .build(app)?;
+                msub = msub.item(&item);
+            }
+        } else if backend == "openai_compat" || backend == "ollama" {
+            // Local backends: try to fetch model list (cached from last settings visit)
+            // Show current model as selected + placeholder to open settings
+            let active = config.as_ref().map(|c| c.enhancement.model.as_str()).unwrap_or("");
+            if !active.is_empty() {
+                let label = format!("{}{}", SELECTED_PREFIX, active);
+                let menu_id = format!("{}{}", menu_ids::AI_MODEL_PREFIX, active);
+                let item = MenuItemBuilder::with_id(menu_id, &label)
+                    .enabled(false) // already selected
+                    .build(app)?;
+                msub = msub.item(&item);
+                msub = msub.separator();
+            }
+            let settings_item = MenuItemBuilder::with_id("ai_model_open_settings", "Change Model in Settings…")
+                .enabled(true)
+                .build(app)?;
+            msub = msub.item(&settings_item);
+        }
+        msub.build()?
+    };
 
     let mut submenu = SubmenuBuilder::new(app, "AI Enhancement")
         .item(&toggle_item)
-        .item(&model_item)
+        .item(&model_submenu)
         .separator();
 
     let prompts = enhancement::get_all_prompts();
@@ -693,6 +737,15 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             tracing::info!("Model selected from tray: {:?}", model_id);
             handle_select_model(app, model_id.to_string());
         }
+        _ if id.starts_with(menu_ids::AI_MODEL_PREFIX) => {
+            let model_id = &id[menu_ids::AI_MODEL_PREFIX.len()..];
+            tracing::info!("AI enhancement model selected from tray: {:?}", model_id);
+            handle_select_ai_model(app, model_id.to_string());
+        }
+        "ai_model_open_settings" => {
+            tracing::info!("Opening settings for AI model change");
+            handle_open_settings(app);
+        }
         _ if id.starts_with(menu_ids::PROMPT_PREFIX) => {
             let prompt_id = &id[menu_ids::PROMPT_PREFIX.len()..];
             tracing::info!("Prompt selected from tray: {:?}", prompt_id);
@@ -813,6 +866,39 @@ fn handle_select_audio_device(app: &AppHandle, device_id: Option<String>) {
 /// Saves config and updates the tray tick immediately, then initialises the
 /// transcription backend on a background thread so the menu doesn't freeze
 /// (FluidAudio CoreML compilation can take 30-40 s on first use).
+fn handle_select_ai_model(app: &AppHandle, model_id: String) {
+    // Update the anthropic model in config
+    if let Ok(mut cfg) = config::get_config() {
+        if cfg.enhancement.backend == "anthropic" {
+            cfg.enhancement.anthropic_model = model_id.clone();
+        } else {
+            cfg.enhancement.model = model_id.clone();
+        }
+        if let Err(e) = config::set_config(cfg) {
+            tracing::error!("Failed to save AI model selection: {}", e);
+            return;
+        }
+    }
+
+    // Reconfigure the backend so the next enhancement uses the new model
+    if let Ok(cfg) = config::get_config() {
+        let _ = enhancement::set_enhancement_backend(
+            cfg.enhancement.backend.clone(),
+            cfg.enhancement.ollama_url.clone(),
+            cfg.enhancement.api_key.clone(),
+            cfg.enhancement.anthropic_api_key.clone(),
+            Some(cfg.enhancement.anthropic_model.clone()),
+            Some(cfg.enhancement.anthropic_url.clone()),
+        );
+    }
+
+    // Notify frontend
+    let _ = app.emit("ai-model-changed", &model_id);
+
+    // Rebuild tray menu to show updated tick
+    rebuild_tray_menu(app);
+}
+
 fn handle_select_model(app: &AppHandle, model_id: String) {
     // Save selected model to config
     if let Err(e) = transcription::set_selected_model_id(Some(model_id.clone())) {

@@ -67,6 +67,8 @@ export interface EnhancementConfig {
   anthropicModel: string;
   /** Anthropic API base URL */
   anthropicUrl: string;
+  /** Disable thinking/reasoning mode for OpenAI-compatible backends */
+  disableThinking: boolean;
 }
 
 /** Recording indicator visual style */
@@ -206,6 +208,7 @@ function parseConfig(raw: ConfigRaw): Config {
       anthropicApiKey: raw.enhancement.anthropic_api_key ?? '',
       anthropicModel: raw.enhancement.anthropic_model ?? 'claude-haiku-4-5-20251001',
       anthropicUrl: raw.enhancement.anthropic_url ?? 'https://api.anthropic.com',
+      disableThinking: raw.enhancement.disable_thinking ?? false,
     },
     general: {
       launchAtLogin: raw.general.launch_at_login,
@@ -255,6 +258,7 @@ function serialiseConfig(config: Config): ConfigRaw {
       anthropic_api_key: config.enhancement.anthropicApiKey || null,
       anthropic_model: config.enhancement.anthropicModel,
       anthropic_url: config.enhancement.anthropicUrl,
+      disable_thinking: config.enhancement.disableThinking,
     },
     general: {
       launch_at_login: config.general.launchAtLogin,
@@ -304,6 +308,7 @@ function getDefaultConfig(): Config {
       anthropicApiKey: '',
       anthropicModel: 'claude-haiku-4-5-20251001',
       anthropicUrl: 'https://api.anthropic.com',
+      disableThinking: false,
     },
     general: {
       launchAtLogin: false,

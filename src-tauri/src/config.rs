@@ -170,6 +170,10 @@ pub struct EnhancementConfig {
     /// Anthropic API base URL
     #[serde(default = "default_anthropic_url")]
     pub anthropic_url: String,
+    /// Disable thinking/reasoning mode for OpenAI-compatible backends
+    /// Sends chat_template_kwargs: {"enable_thinking": false} in requests
+    #[serde(default)]
+    pub disable_thinking: bool,
 }
 
 impl Default for EnhancementConfig {
@@ -184,6 +188,7 @@ impl Default for EnhancementConfig {
             anthropic_api_key: None,
             anthropic_model: default_anthropic_model(),
             anthropic_url: default_anthropic_url(),
+            disable_thinking: false,
         }
     }
 }

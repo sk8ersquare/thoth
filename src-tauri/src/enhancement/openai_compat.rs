@@ -34,6 +34,9 @@ struct ChatCompletionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
     stream: bool,
+    /// Pass-through kwargs for the chat template (e.g. oMLX enable_thinking)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chat_template_kwargs: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -90,6 +93,8 @@ pub struct OpenAiCompatClient {
     api_key: Option<String>,
     client: reqwest::Client,
     timeout: Duration,
+    /// When true, sends chat_template_kwargs: {"enable_thinking": false} in requests
+    disable_thinking: bool,
 }
 
 impl OpenAiCompatClient {
@@ -120,7 +125,14 @@ impl OpenAiCompatClient {
             api_key,
             client,
             timeout,
+            disable_thinking: false,
         }
+    }
+
+    /// Set whether to disable thinking/reasoning mode in requests.
+    /// When enabled, sends `chat_template_kwargs: {"enable_thinking": false}`.
+    pub fn set_disable_thinking(&mut self, disable: bool) {
+        self.disable_thinking = disable;
     }
 
     /// Check if the server is available by hitting `/v1/models`.
@@ -214,11 +226,18 @@ impl OpenAiCompatClient {
             content: user_message.to_string(),
         });
 
+        let chat_template_kwargs = if self.disable_thinking {
+            Some(serde_json::json!({"enable_thinking": false}))
+        } else {
+            None
+        };
+
         let request = ChatCompletionRequest {
             model: model.to_string(),
             messages,
             temperature,
             stream: false,
+            chat_template_kwargs,
         };
 
         tracing::debug!(
