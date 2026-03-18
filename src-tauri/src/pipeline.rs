@@ -519,13 +519,10 @@ async fn process_audio(
     // Apply paragraph formatting for output only (not stored in database)
     let mut output_text = transcription::filter::format_paragraphs(&output.text);
 
-    // Append a trailing space after terminal punctuation so consecutive
-    // transcriptions don't run together when inserted at the cursor.
-    if output_text
-        .as_bytes()
-        .last()
-        .is_some_and(|&b| matches!(b, b'.' | b'?' | b'!' | b',' | b';' | b':'))
-    {
+    // Always append a trailing space so consecutive transcriptions don't
+    // run together when inserted at the cursor. Without this, "it" + "And"
+    // becomes "itAnd" instead of "it And".
+    if !output_text.ends_with(' ') && !output_text.ends_with('\n') {
         output_text.push(' ');
     }
 
@@ -552,6 +549,17 @@ async fn process_audio(
         tracing::debug!("Pipeline: Pasting text...");
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
+        let uses_clipboard = config.insertion_method != "typing";
+
+        // Preserve clipboard before paste overwrites it
+        let saved_clipboard = if uses_clipboard {
+            arboard::Clipboard::new()
+                .ok()
+                .and_then(|mut cb| cb.get_text().ok())
+        } else {
+            None
+        };
+
         let insert_result = if config.insertion_method == "typing" {
             crate::text_insert::insert_text_by_typing(output_text.clone(), None, None)
         } else {
@@ -562,6 +570,15 @@ async fn process_audio(
             tracing::warn!("Pipeline: Failed to insert text: {}", e);
         } else {
             tracing::debug!("Pipeline: Pasted text successfully");
+        }
+
+        // Restore original clipboard after paste completes
+        if let Some(original) = saved_clipboard {
+            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+            match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(original)) {
+                Ok(()) => tracing::debug!("Pipeline: Clipboard restored"),
+                Err(e) => tracing::warn!("Pipeline: Failed to restore clipboard: {}", e),
+            }
         }
     }
 
