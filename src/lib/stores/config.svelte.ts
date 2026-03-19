@@ -40,6 +40,8 @@ export interface ShortcutConfig {
   toggleRecordingAlt: string | null;
   /** Copy last transcription shortcut */
   copyLast: string | null;
+  /** Quick-add selected text to dictionary shortcut */
+  addToDictionary: string | null;
   /** Recording mode: toggle or push-to-talk */
   recordingMode: RecordingMode;
 }
@@ -165,6 +167,7 @@ interface ConfigRaw {
     toggle_recording: string;
     toggle_recording_alt: string | null;
     copy_last: string | null;
+    add_to_dictionary: string | null;
     recording_mode: RecordingMode;
   };
   enhancement: {
@@ -217,6 +220,7 @@ function parseConfig(raw: ConfigRaw): Config {
       toggleRecording: raw.shortcuts.toggle_recording,
       toggleRecordingAlt: raw.shortcuts.toggle_recording_alt,
       copyLast: raw.shortcuts.copy_last,
+      addToDictionary: raw.shortcuts.add_to_dictionary ?? null,
       recordingMode: raw.shortcuts.recording_mode,
     },
     enhancement: {
@@ -277,6 +281,7 @@ function serialiseConfig(config: Config): ConfigRaw {
       toggle_recording: config.shortcuts.toggleRecording,
       toggle_recording_alt: config.shortcuts.toggleRecordingAlt,
       copy_last: config.shortcuts.copyLast,
+      add_to_dictionary: config.shortcuts.addToDictionary,
       recording_mode: config.shortcuts.recordingMode,
     },
     enhancement: {
@@ -337,6 +342,7 @@ function getDefaultConfig(): Config {
       toggleRecording: 'F13',
       toggleRecordingAlt: 'CommandOrControl+Shift+Space',
       copyLast: 'F14',
+      addToDictionary: null,
       recordingMode: 'toggle',
     },
     enhancement: {
