@@ -241,7 +241,7 @@ pub fn start_recording_metering(app: AppHandle, device_id: Option<&str>) -> Resu
     let emit_handle = std::thread::spawn(move || {
         // Track silence for no-input warning
         // After NO_INPUT_GRACE_SECS seconds with RMS below threshold, emit warning
-        const NO_INPUT_GRACE_SECS: f64 = 5.0;
+        const NO_INPUT_GRACE_SECS: f64 = 3.0;
         const NO_INPUT_RMS_THRESHOLD: f32 = 0.001; // effectively silence
         let mut silence_since: Option<std::time::Instant> = None;
         let mut no_input_warning_sent = false;
