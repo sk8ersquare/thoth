@@ -159,6 +159,9 @@ pub struct LocalServer {
     /// Optional API key for this server
     #[serde(default)]
     pub api_key: Option<String>,
+    /// Last used model for this server (remembered across switches)
+    #[serde(default)]
+    pub last_model: Option<String>,
 }
 
 /// AI enhancement configuration

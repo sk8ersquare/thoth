@@ -126,6 +126,14 @@
   function handleModelChange(event: Event): void {
     const select = event.target as HTMLSelectElement;
     configStore.updateEnhancement('model', select.value);
+    // Persist model selection back to the active server entry
+    const activeId = configStore.config.enhancement.activeLocalServerId;
+    if (activeId) {
+      const updated = configStore.config.enhancement.localServers.map((s) =>
+        s.id === activeId ? { ...s, lastModel: select.value } : s
+      );
+      configStore.updateEnhancement('localServers', updated);
+    }
     saveSettings();
   }
 
@@ -195,11 +203,25 @@
     }
   }
 
-  async function activateServer(server: { id: string; url: string; backend: 'ollama' | 'openai_compat'; apiKey?: string }): Promise<void> {
+  async function activateServer(server: { id: string; url: string; backend: 'ollama' | 'openai_compat'; apiKey?: string; lastModel?: string }): Promise<void> {
+    // Save current model back to the previously active server before switching
+    const prevId = configStore.config.enhancement.activeLocalServerId;
+    if (prevId && prevId !== server.id) {
+      const currentModel = configStore.config.enhancement.model;
+      const updated = configStore.config.enhancement.localServers.map((s) =>
+        s.id === prevId ? { ...s, lastModel: currentModel } : s
+      );
+      configStore.updateEnhancement('localServers', updated);
+    }
+
     configStore.updateEnhancement('activeLocalServerId', server.id);
     configStore.updateEnhancement('ollamaUrl', server.url);
     configStore.updateEnhancement('backend', server.backend);
     configStore.updateEnhancement('apiKey', server.apiKey ?? '');
+    // Restore last-used model for this server if available
+    if (server.lastModel) {
+      configStore.updateEnhancement('model', server.lastModel);
+    }
     await configStore.save();
     await applyBackend();
     await checkOllama();

@@ -17,6 +17,7 @@
   let visualizerState = $state<'idle' | 'recording' | 'processing'>('idle');
   let audioLevel = $state(0);
   let indicatorStyle = $state<IndicatorStyle>('cursor-dot');
+  let noInputWarning = $state(false); // true = no voice detected for 5+ seconds
 
   // Animation state
   let canvas: HTMLCanvasElement;
@@ -28,6 +29,10 @@
 
   // Processing animation
   let processingPhase = 0;
+
+  // No-input pulse animation
+  let noInputPhase = 0;
+  const NO_INPUT_RED = { r: 220, g: 50, b: 50 }; // vivid red
 
   // Waveform history for pill style (circular buffer)
   const WAVEFORM_BARS = 32;
@@ -88,8 +93,10 @@
           state === 'outputting'
         ) {
           visualizerState = 'processing';
+          noInputWarning = false;
         } else {
           visualizerState = 'idle';
+          noInputWarning = false;
         }
         indicatorLog('Visualizer state now:', visualizerState);
       }
@@ -126,8 +133,15 @@
     // Listen for completion
     const completeUnlisten = await listen('pipeline-complete', () => {
       visualizerState = 'idle';
+      noInputWarning = false;
     });
     unlisteners.push(completeUnlisten);
+
+    // Listen for no-input warning
+    const noInputUnlisten = await listen<boolean>('recording-no-input', (event) => {
+      noInputWarning = event.payload;
+    });
+    unlisteners.push(noInputUnlisten);
   });
 
   onDestroy(() => {
@@ -184,7 +198,14 @@
     const iconX = (w - ICON_SIZE) / 2;
     const iconY = (h - ICON_SIZE) / 2;
 
-    if (visualizerState === 'recording') {
+    if (visualizerState === 'recording' && noInputWarning) {
+      // Red pulsing — no voice activity detected
+      noInputPhase += 0.06;
+      const pulse = Math.sin(noInputPhase * Math.PI) * 0.5 + 0.5;
+      drawNoInputGlow(w, h, iconX, iconY, pulse);
+      drawRoundedSquare(iconX, iconY, 0.75 + pulse * 0.25, NO_INPUT_RED);
+      drawMicIcon(w, h);
+    } else if (visualizerState === 'recording') {
       const targetGlow = Math.min(1, audioLevel * 2);
       glowIntensity += (targetGlow - glowIntensity) * 0.2;
       drawDotGlow(w, h, iconX, iconY);
@@ -220,12 +241,28 @@
     ctx.restore();
   }
 
-  function drawRoundedSquare(x: number, y: number, opacity: number = 1) {
+  function drawRoundedSquare(x: number, y: number, opacity: number = 1, color = ACCENT) {
     if (!ctx) return;
     ctx.beginPath();
     ctx.roundRect(x, y, ICON_SIZE, ICON_SIZE, ICON_RADIUS);
-    ctx.fillStyle = `rgba(${ACCENT.r}, ${ACCENT.g}, ${ACCENT.b}, ${opacity})`;
+    ctx.fillStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${opacity})`;
     ctx.fill();
+  }
+
+  function drawNoInputGlow(w: number, h: number, iconX: number, iconY: number, pulse: number) {
+    if (!ctx) return;
+    const spread = 6 + pulse * 14;
+    const alpha = 0.15 + pulse * 0.45;
+    ctx.save();
+    ctx.shadowColor = `rgba(${NO_INPUT_RED.r}, ${NO_INPUT_RED.g}, ${NO_INPUT_RED.b}, ${alpha})`;
+    ctx.shadowBlur = spread;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.beginPath();
+    ctx.roundRect(iconX, iconY, ICON_SIZE, ICON_SIZE, ICON_RADIUS);
+    ctx.fillStyle = `rgba(${NO_INPUT_RED.r}, ${NO_INPUT_RED.g}, ${NO_INPUT_RED.b}, 0.01)`;
+    ctx.fill();
+    ctx.restore();
   }
 
   function drawMicIcon(w: number, h: number, opacity: number = 1) {
@@ -280,7 +317,13 @@
     const radius = h / 2;
     const micAreaWidth = 40;
 
-    if (visualizerState === 'recording') {
+    if (visualizerState === 'recording' && noInputWarning) {
+      // Red pulsing pill
+      noInputPhase += 0.06;
+      const pulse = Math.sin(noInputPhase * Math.PI) * 0.5 + 0.5;
+      drawPillBackground(w, h, radius, 0.75 + pulse * 0.25, NO_INPUT_RED);
+      drawPillMicIcon(h, micAreaWidth);
+    } else if (visualizerState === 'recording') {
       // Background pill shape
       drawPillBackground(w, h, radius, 0.85);
       // Waveform bars
@@ -299,11 +342,11 @@
     }
   }
 
-  function drawPillBackground(w: number, h: number, radius: number, opacity: number = 1) {
+  function drawPillBackground(w: number, h: number, radius: number, opacity: number = 1, color = ACCENT) {
     if (!ctx) return;
     ctx.beginPath();
     ctx.roundRect(0, 0, w, h, radius);
-    ctx.fillStyle = `rgba(${ACCENT.r}, ${ACCENT.g}, ${ACCENT.b}, ${opacity})`;
+    ctx.fillStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${opacity})`;
     ctx.fill();
   }
 

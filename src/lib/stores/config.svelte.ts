@@ -82,6 +82,8 @@ export interface LocalServer {
   url: string;
   backend: 'ollama' | 'openai_compat';
   apiKey?: string;
+  /** Last used model for this server — restored on activation */
+  lastModel?: string;
 }
 
 /** Recording indicator visual style */
@@ -174,7 +176,7 @@ interface ConfigRaw {
     anthropic_model: string;
     anthropic_url: string;
     disable_thinking: boolean;
-    local_servers: Array<{ id: string; name: string; url: string; backend: string; api_key?: string }>;
+    local_servers: Array<{ id: string; name: string; url: string; backend: string; api_key?: string; last_model?: string }>;
     active_local_server_id: string | null;
   };
   general: {
@@ -231,6 +233,7 @@ function parseConfig(raw: ConfigRaw): Config {
         url: s.url,
         backend: s.backend as 'ollama' | 'openai_compat',
         apiKey: s.api_key ?? undefined,
+        lastModel: s.last_model ?? undefined,
       })),
       activeLocalServerId: raw.enhancement.active_local_server_id ?? null,
     },
@@ -289,6 +292,7 @@ function serialiseConfig(config: Config): ConfigRaw {
         url: s.url,
         backend: s.backend,
         api_key: s.apiKey ?? null,
+        last_model: s.lastModel ?? null,
       })),
       active_local_server_id: config.enhancement.activeLocalServerId,
     },
