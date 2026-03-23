@@ -193,7 +193,7 @@ fn get_mouse_position() -> Option<(f64, f64)> {
             // Get DPI of primary monitor (hdc = null → primary screen DC)
             let hdc = GetDC(None);
             let dpi = if !hdc.is_invalid() {
-                let dpi = GetDeviceCaps(hdc, LOGPIXELSX);
+                let dpi = GetDeviceCaps(Some(hdc), LOGPIXELSX);
                 ReleaseDC(None, hdc);
                 dpi as f64
             } else {
