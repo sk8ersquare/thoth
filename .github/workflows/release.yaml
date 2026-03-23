@@ -27,10 +27,13 @@ jobs:
           - platform: ubuntu-22.04
             args: '-- --no-default-features'
             rustflags: ''
-          # Windows x86_64 — Whisper CPU + Parakeet (Sherpa-ONNX static works on Windows)
-          # FluidAudio is macOS-only. CUDA/Vulkan GPU acceleration is opt-in at build time.
+          # Windows x86_64 — Whisper CPU only for now.
+          # Parakeet (Sherpa-ONNX) requires additional Win32 linker flags (advapi32)
+          # that can't be injected into the sherpa-rs DLL link step via config.toml.
+          # Will re-enable once we find a solution (patch sherpa-rs-sys or use a wrapper).
+          # FluidAudio is macOS-only.
           - platform: windows-latest
-            args: '-- --no-default-features --features parakeet'
+            args: '-- --no-default-features'
             rustflags: ''
 
     runs-on: ${{ matrix.platform }}
