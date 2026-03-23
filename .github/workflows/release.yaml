@@ -64,6 +64,9 @@ jobs:
         run: |
           choco install llvm -y
           echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+          # sherpa-rs-sys defaults to static CRT (/MT) but whisper-rs + Tauri use /MD.
+          # Force dynamic CRT so all libs agree and LNK2038 doesn't fire.
+          echo "SHERPA_STATIC_CRT=0" >> $env:GITHUB_ENV
 
       - name: Patch version for Windows (MSI requires each component <= 255)
         if: matrix.platform == 'windows-latest'
