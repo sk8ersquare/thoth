@@ -429,9 +429,13 @@ fn main() {
     } else {
         // Build with CMake
         let profile = env::var("SHERPA_LIB_PROFILE").unwrap_or("Release".to_string());
+        // Default to dynamic CRT (/MD) so sherpa-onnx is compatible with
+        // whisper-rs and Tauri on Windows. Both use /MD; mixing /MT and /MD
+        // causes LNK2038 RuntimeLibrary mismatch. Set SHERPA_STATIC_CRT=1
+        // to override if you need a fully static build.
         let static_crt = env::var("SHERPA_STATIC_CRT")
             .map(|v| v == "1")
-            .unwrap_or(true);
+            .unwrap_or(false);
         let mut config = Config::new(&sherpa_dst);
 
         config.define("CMAKE_POLICY_VERSION_MINIMUM", "3.5");
