@@ -27,11 +27,14 @@ jobs:
           - platform: ubuntu-22.04
             args: '-- --no-default-features'
             rustflags: ''
-          # Windows x86_64 — Whisper CPU + Parakeet (Sherpa-ONNX static works on Windows).
-          # advapi32 is patched into sherpa-rs-sys via vendor/sherpa-rs-sys.
+          # Windows x86_64 — Whisper CPU only.
+          # Parakeet (sherpa-rs) is excluded: the pre-built sherpa-onnx Windows static
+          # archives are compiled with /MT (static CRT) but whisper-rs + Tauri use /MD
+          # (dynamic CRT), causing an unresolvable LNK2038 mismatch. Building from
+          # source (no download-binaries) would work but takes ~1hr in CI.
           # FluidAudio is macOS-only.
           - platform: windows-latest
-            args: '-- --no-default-features --features parakeet'
+            args: '-- --no-default-features'
             rustflags: ''
 
     runs-on: ${{ matrix.platform }}
@@ -64,9 +67,6 @@ jobs:
         run: |
           choco install llvm -y
           echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
-          # sherpa-rs-sys defaults to static CRT (/MT) but whisper-rs + Tauri use /MD.
-          # Force dynamic CRT so all libs agree and LNK2038 doesn't fire.
-          echo "SHERPA_STATIC_CRT=0" >> $env:GITHUB_ENV
 
       - name: Patch version for Windows (MSI requires each component <= 255)
         if: matrix.platform == 'windows-latest'
