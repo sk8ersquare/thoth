@@ -59,7 +59,9 @@ build/
 # ============================================================================
 target/
 src-tauri/target/
-src-tauri/Cargo.lock
+# Cargo.lock is committed for binary/application crates (Cargo best practice)
+# and required for [patch.crates-io] overrides to work in CI.
+# See: https://doc.rust-lang.org/cargo/faq.html#why-have-cargolock-in-version-control
 *.dylib
 
 # ============================================================================

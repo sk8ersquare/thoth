@@ -35,11 +35,14 @@ webrtc-vad = "0.4"
 symphonia = { version = "0.5", features = ["mp3", "aac", "ogg", "vorbis", "flac", "wav", "pcm", "isomp4"] }
 
 # Transcription
-# sherpa-rs: Parakeet TDT models via Sherpa-ONNX (statically linked)
-# NOTE: static + download-binaries works on macOS and Windows (archives have .a/.lib files)
-# but NOT on Linux (archive only has binaries, no .a files). Linux CI
-# builds without parakeet feature until upstream fixes the archive.
-sherpa-rs = { version = "0.6", default-features = false, features = ["static", "download-binaries"], optional = true }
+# sherpa-rs: Parakeet TDT models via Sherpa-ONNX
+# Uses download-binaries to fetch pre-built libs from sherpa-onnx releases.
+# macOS: static linking (pre-built .a files, no CRT concerns)
+# Windows: dynamic linking (DLLs) — the pre-built static Windows .lib files
+#   are compiled with /MT (static CRT), but whisper-rs + Tauri use /MD
+#   (dynamic CRT), causing LNK2038. DLLs avoid this entirely.
+# Linux: excluded (upstream archive lacks .a files)
+sherpa-rs = { version = "0.6", default-features = false, features = ["download-binaries"], optional = true }
 # fluidaudio-rs: Apple Neural Engine backend via CoreML (macOS-only, Apple Silicon)
 # Forked with platform guards: compiles as no-op on Linux/Windows
 fluidaudio-rs = { git = "https://github.com/poodle64/fluidaudio-rs", rev = "97aaf88", optional = true }
@@ -91,8 +94,12 @@ core-foundation = "0.10"
 core-graphics = "0.24"
 
 [features]
-default = ["parakeet", "fluidaudio"]
+default = ["parakeet-static", "fluidaudio"]
 parakeet = ["sherpa-rs"]
+# parakeet-static: static linking (macOS). Avoids bundling .dylibs.
+# Windows must use "parakeet" (dynamic) because pre-built sherpa-onnx
+# static .lib files use /MT CRT which conflicts with whisper-rs /MD.
+parakeet-static = ["sherpa-rs", "sherpa-rs/static"]
 fluidaudio = ["fluidaudio-rs"]
 # GPU acceleration for whisper.cpp (mutually exclusive, only use one)
 # Use: cargo build --features cuda      for NVIDIA GPUs

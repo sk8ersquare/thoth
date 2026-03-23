@@ -27,14 +27,12 @@ jobs:
           - platform: ubuntu-22.04
             args: '-- --no-default-features'
             rustflags: ''
-          # Windows x86_64 — Whisper CPU only.
-          # Parakeet (sherpa-rs) is excluded: the pre-built sherpa-onnx Windows static
-          # archives are compiled with /MT (static CRT) but whisper-rs + Tauri use /MD
-          # (dynamic CRT), causing an unresolvable LNK2038 mismatch. Building from
-          # source (no download-binaries) would work but takes ~1hr in CI.
+          # Windows x86_64 — Whisper CPU + Parakeet (Sherpa-ONNX).
+          # sherpa-rs-sys is patched via [patch.crates-io] to use /MD (dynamic CRT)
+          # matching whisper-rs + Tauri. Cargo.lock is committed so CI uses the patch.
           # FluidAudio is macOS-only.
           - platform: windows-latest
-            args: '-- --no-default-features'
+            args: '-- --no-default-features --features parakeet'
             rustflags: ''
 
     runs-on: ${{ matrix.platform }}
