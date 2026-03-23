@@ -134,3 +134,9 @@ codegen-units = 1
 lto = true
 opt-level = "s"
 strip = true
+
+# Patch sherpa-rs-sys to add missing Windows system lib (advapi32).
+# ONNX Runtime ETW telemetry + espeak-ng registry access require it;
+# the upstream crate doesn't link it. Remove once sherpa-rs-sys >= 0.6.9 fixes this.
+[patch.crates-io]
+sherpa-rs-sys = { path = "../vendor/sherpa-rs-sys" }

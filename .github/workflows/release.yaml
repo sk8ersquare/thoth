@@ -27,13 +27,11 @@ jobs:
           - platform: ubuntu-22.04
             args: '-- --no-default-features'
             rustflags: ''
-          # Windows x86_64 — Whisper CPU only for now.
-          # Parakeet (Sherpa-ONNX) requires additional Win32 linker flags (advapi32)
-          # that can't be injected into the sherpa-rs DLL link step via config.toml.
-          # Will re-enable once we find a solution (patch sherpa-rs-sys or use a wrapper).
+          # Windows x86_64 — Whisper CPU + Parakeet (Sherpa-ONNX static works on Windows).
+          # advapi32 is patched into sherpa-rs-sys via vendor/sherpa-rs-sys.
           # FluidAudio is macOS-only.
           - platform: windows-latest
-            args: '-- --no-default-features'
+            args: '-- --no-default-features --features parakeet'
             rustflags: ''
 
     runs-on: ${{ matrix.platform }}
