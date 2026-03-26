@@ -576,6 +576,16 @@ pub fn prewarm_indicator_window(app: &AppHandle) {
         if let Some(window) = app_handle.get_webview_window(INDICATOR_WINDOW_LABEL) {
             tracing::info!("Pre-warming recording indicator window");
 
+            // Always move off-screen first, before any show().
+            // This prevents macOS window restoration from leaving the indicator
+            // at its last visible position after a crash during recording.
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = window.set_position(tauri::Position::Logical(
+                    tauri::LogicalPosition::new(-10000.0, -10000.0),
+                ));
+            }
+
             // On Linux/Wayland, show then hide to map the window with compositor.
             // This ensures subsequent show() calls will work.
             #[cfg(target_os = "linux")]

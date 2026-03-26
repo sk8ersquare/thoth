@@ -172,6 +172,7 @@
         </button>
       </div>
     </div>
+    <p class="coming-soon-hint">💡 Quick-add from transcript (right-click to add a word directly) — coming in a future update.</p>
   </div>
 
   <div class="entries-section">
@@ -310,6 +311,13 @@
     padding: 16px;
     border-radius: var(--radius-md);
     border: 1px solid var(--color-border-subtle);
+  }
+
+  .coming-soon-hint {
+    margin: 8px 0 0;
+    font-size: 11px;
+    color: var(--color-text-tertiary, rgba(255, 255, 255, 0.35));
+    font-style: italic;
   }
 
   .form-row {
